@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.NearLink" parent="android:Theme.Material.NoActionBar" />
+</resources>
