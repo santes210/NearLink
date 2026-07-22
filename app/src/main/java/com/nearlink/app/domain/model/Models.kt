@@ -40,5 +40,6 @@ data class Message(
     val isEncrypted: Boolean = true,
     val fileName: String? = null,
     val ttlSeconds: Int = 0,
-    val isSos: Boolean = false
+    val isSos: Boolean = false,
+    val localFilePath: String? = null
 )

@@ -1,4 +1,3 @@
-
 package com.nearlink.app.data.local
 
 import android.content.Context
@@ -17,7 +16,8 @@ data class MessageEntity(
     val isEncrypted: Boolean,
     val fileName: String?,
     val ttlSeconds: Int,
-    val isSos: Boolean
+    val isSos: Boolean,
+    val localFilePath: String? = null
 )
 
 @Dao
@@ -35,7 +35,7 @@ interface MessageDao {
     suspend fun deleteExpiredMessages(currentTime: Long)
 }
 
-@Database(entities = [MessageEntity::class], version = 2, exportSchema = false)
+@Database(entities = [MessageEntity::class], version = 3, exportSchema = false)
 abstract class NearLinkDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
 

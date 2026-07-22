@@ -1,4 +1,3 @@
-
 package com.nearlink.app.data.repository
 
 import com.nearlink.app.data.local.MessageDao
@@ -31,7 +30,8 @@ class MessageRepositoryImpl(
                     isEncrypted = e.isEncrypted,
                     fileName = e.fileName,
                     ttlSeconds = e.ttlSeconds,
-                    isSos = e.isSos
+                    isSos = e.isSos,
+                    localFilePath = e.localFilePath
                 )
             }
         }
@@ -50,7 +50,8 @@ class MessageRepositoryImpl(
                 isEncrypted = message.isEncrypted,
                 fileName = message.fileName,
                 ttlSeconds = message.ttlSeconds,
-                isSos = message.isSos
+                isSos = message.isSos,
+                localFilePath = message.localFilePath
             )
             messageDao.insertMessage(entity)
             Result.Success(Unit)

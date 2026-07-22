@@ -8,12 +8,14 @@ import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nearlink.app.bluetooth.BluetoothConnectionManager
+import com.nearlink.app.data.audio.AudioRecorder
 import com.nearlink.app.data.local.NearLinkDatabase
 import com.nearlink.app.data.repository.MessageRepositoryImpl
 import com.nearlink.app.data.security.ContactStore
 import com.nearlink.app.data.security.EncryptionManager
 import com.nearlink.app.data.security.IdentityManager
 import com.nearlink.app.data.security.SecureMessenger
+import com.nearlink.app.data.storage.MediaStorage
 import com.nearlink.app.domain.model.ConnectionState
 import com.nearlink.app.domain.model.Message
 import com.nearlink.app.domain.model.MessageStatus
@@ -30,7 +32,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 enum class Screen {
     HOME, DISCOVERY, CHAT, SETTINGS
@@ -45,9 +46,9 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
 
     private val contactStore = ContactStore(application)
     private val secureMessenger = SecureMessenger(identity, contactStore, application) { _temporaryPin.value }
-
     private val bluetooth = BluetoothConnectionManager(application)
     private val wifi = WifiDirectManager(application)
+    private val audioRecorder = AudioRecorder(application)
 
     // ---------------- Estado de UI ----------------
     private val _currentScreen = MutableStateFlow(Screen.HOME)
@@ -62,12 +63,9 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
     private val _messages = MutableStateFlow<Map<String, List<Message>>>(emptyMap())
     val messages: StateFlow<Map<String, List<Message>>> = _messages.asStateFlow()
 
-    private val _temporaryPin = MutableStateFlow(
-        application.getSharedPreferences("nearlink_pairing", Context.MODE_PRIVATE)
-            .getString("pin", "4821") ?: "4821"
-    )
-    val temporaryPin: StateFlow<String> = _temporaryPin.asStateFlow()
     private val pinPrefs = application.getSharedPreferences("nearlink_pairing", Context.MODE_PRIVATE)
+    private val _temporaryPin = MutableStateFlow(pinPrefs.getString("pin", "4821") ?: "4821")
+    val temporaryPin: StateFlow<String> = _temporaryPin.asStateFlow()
 
     private val _isRecordingVoice = MutableStateFlow(false)
     val isRecordingVoice: StateFlow<Boolean> = _isRecordingVoice.asStateFlow()
@@ -119,7 +117,6 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
                 }
                 _connectionState.value = mapped
                 if (st == BluetoothConnectionManager.State.CONNECTED) {
-                    // Al conectar: enviamos identidad + directorio + bandeja de salida (store-and-forward)
                     bluetooth.send(secureMessenger.beginHandshake())
                     bluetooth.send(secureMessenger.buildContacts())
                     flushOutbox()
@@ -172,11 +169,26 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             secureMessenger.decrypted.collect { app ->
                 val peerId = app.senderFp
-                val displayContent = if (app.kind == "FILE") {
-                    val saved = saveReceivedFile(app.id, app.fileName, app.content)
-                    saved ?: app.content
-                } else {
-                    app.content
+                val (displayContent, localPath) = when (app.kind) {
+                    "FILE", "VOICE" -> {
+                        val decoded = runCatching { Base64.decode(app.content, Base64.NO_WRAP) }.getOrNull()
+                        if (decoded != null) {
+                            val name = app.fileName ?: if (app.kind == "VOICE") "voz.m4a" else "archivo"
+                            val mime = MediaStorage.mimeFromName(name)
+                            val uri = withContext(Dispatchers.IO) {
+                                MediaStorage.saveToSharedStorage(getApplication<Application>(), decoded, name, mime)
+                            }
+                            val label = when {
+                                app.kind == "VOICE" -> "Nota de voz"
+                                mime.startsWith("image") -> "Imagen"
+                                else -> "Archivo"
+                            }
+                            ("$label (${decoded.size} bytes)") to uri?.toString()
+                        } else {
+                            app.content to null
+                        }
+                    }
+                    else -> app.content to null
                 }
                 val incoming = Message(
                     id = app.id,
@@ -189,11 +201,11 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
                     isEncrypted = true,
                     fileName = app.fileName,
                     ttlSeconds = app.ttlSeconds,
-                    isSos = app.kind == "SOS"
+                    isSos = app.kind == "SOS",
+                    localFilePath = localPath
                 )
                 messageRepository.sendMessage(incoming)
                 observeMessages(peerId)
-                // Confirmar entrega de vuelta (llega al menos al par directamente conectado)
                 bluetooth.send(secureMessenger.buildAck(app.id))
             }
         }
@@ -216,11 +228,8 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** Reenvía toda la bandeja de salida al par conectado (store-and-forward). */
     private fun flushOutbox() {
-        for (env in secureMessenger.outboxSnapshot()) {
-            bluetooth.send(env)
-        }
+        for (env in secureMessenger.outboxSnapshot()) bluetooth.send(env)
     }
 
     // ---------------- Acciones de UI ----------------
@@ -240,9 +249,7 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
         bluetooth.startDiscovery()
     }
 
-    fun stopScan() {
-        bluetooth.cancelDiscovery()
-    }
+    fun stopScan() { bluetooth.cancelDiscovery() }
 
     fun sendMessage(
         content: String,
@@ -279,7 +286,7 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
                 messageRepository.updateStatus(envelope.msgId, MessageStatus.SENT.name)
             } else {
                 messageRepository.updateStatus(envelope.msgId, MessageStatus.FAILED.name)
-                _errorMessage.value = "No hay conexión Bluetooth activa; el mensaje quedó en la bandeja y se reenviará."
+                _errorMessage.value = "No hay conexión Bluetooth activa; el mensaje quedó en cola y se reenviará."
             }
         }
     }
@@ -289,41 +296,104 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun toggleVoiceRecording() {
-        _isRecordingVoice.value = !_isRecordingVoice.value
         if (!_isRecordingVoice.value) {
-            sendMessage("Nota de voz cifrada (0:04)", MessageType.VOICE, "voicenote.mp3", 0, false)
+            runCatching { audioRecorder.start() }
+                .onSuccess { _isRecordingVoice.value = true }
+                .onFailure { _errorMessage.value = "No se pudo iniciar la grabación de audio." }
+        } else {
+            _isRecordingVoice.value = false
+            val file = audioRecorder.stop()
+            if (file != null && file.exists()) {
+                viewModelScope.launch {
+                    val bytes = withContext(Dispatchers.IO) { runCatching { file.readBytes() }.getOrNull() }
+                    file.delete()
+                    if (bytes != null) sendVoiceBytes(bytes)
+                    else _errorMessage.value = "No se pudo procesar la nota de voz."
+                }
+            }
         }
     }
 
-    fun sendFile(fileName: String) {
-        sendMessage("Archivo adjunto: $fileName", MessageType.FILE, fileName, 0, false)
+    private suspend fun sendVoiceBytes(bytes: ByteArray) {
+        val recipient = secureMessenger.peerFingerprint.value ?: run {
+            _errorMessage.value = "Aún conectando… espera al enlace seguro."; return
+        }
+        val name = "voz_${System.currentTimeMillis()}.m4a"
+        val savedUri = withContext(Dispatchers.IO) {
+            MediaStorage.saveToSharedStorage(getApplication<Application>(), bytes, name, "audio/mp4")
+        }
+        val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        val envelope = withContext(Dispatchers.IO) {
+            secureMessenger.sealToRecipient(recipient, MessageType.VOICE.name, b64, 0, name)
+        } ?: run { _errorMessage.value = "Destinatario desconocido."; return }
+        persistMedia(envelope, recipient, MessageType.VOICE, "Nota de voz (${bytes.size} bytes)", name, savedUri?.toString())
     }
 
-    /** Selector de archivos real: lee el Uri, lo cifra E2E y lo envía por la malla. */
     fun sendFileUri(uri: Uri, displayName: String) {
         viewModelScope.launch {
-            val bytes = withContext(Dispatchers.IO) {
-                runCatching {
-                    getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                }.getOrNull()
-            } ?: run {
-                _errorMessage.value = "No se pudo leer el archivo."
-                return@launch
+            val recipient = secureMessenger.peerFingerprint.value ?: run {
+                _errorMessage.value = "Aún conectando… espera al enlace seguro."; return@launch
             }
+            val picked: Triple<ByteArray, String, Uri?>? = withContext(Dispatchers.IO) {
+                val resolver = getApplication<Application>().contentResolver
+                val m = runCatching { resolver.getType(uri) }.getOrNull() ?: MediaStorage.mimeFromName(displayName)
+                val b = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return@withContext null
+                Triple(b, m, MediaStorage.saveToSharedStorage(getApplication<Application>(), b, displayName, m))
+            }
+            if (picked == null) { _errorMessage.value = "No se pudo leer el archivo."; return@launch }
+            val (bytes, mime, savedUri) = picked
             if (bytes.size > MAX_FILE_BYTES) {
-                _errorMessage.value = "Archivo demasiado grande (máximo ${MAX_FILE_BYTES / 1_000_000} MB por la malla)."
+                _errorMessage.value = "Archivo demasiado grande (máx ${MAX_FILE_BYTES / 1_000_000} MB por la malla)."
                 return@launch
             }
-            _transferStatus.value = "Enviando '$displayName' (${bytes.size} bytes) cifrado por la malla…"
+            _transferStatus.value = "Enviando '$displayName' (${bytes.size} bytes) cifrado…"
             val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-            sendMessage(b64, MessageType.FILE, displayName, 0, false)
+            val envelope = withContext(Dispatchers.IO) {
+                secureMessenger.sealToRecipient(recipient, MessageType.FILE.name, b64, 0, displayName)
+            } ?: run { _errorMessage.value = "Destinatario desconocido."; return@launch }
+            val label = if (mime.startsWith("image")) "Imagen" else "Archivo"
+            persistMedia(envelope, recipient, MessageType.FILE, "$label (${bytes.size} bytes)", displayName, savedUri?.toString())
+        }
+    }
+
+    private suspend fun persistMedia(
+        envelope: com.nearlink.app.transport.WireMessage.Envelope,
+        recipient: String,
+        type: MessageType,
+        displayContent: String,
+        fileName: String,
+        localPath: String?
+    ) {
+        val message = Message(
+            id = envelope.msgId,
+            senderId = "me",
+            recipientId = recipient,
+            content = displayContent,
+            timestamp = System.currentTimeMillis(),
+            type = type,
+            status = MessageStatus.SENDING,
+            isEncrypted = true,
+            fileName = fileName,
+            ttlSeconds = 0,
+            isSos = false,
+            localFilePath = localPath
+        )
+        messageRepository.sendMessage(message)
+        observeMessages(recipient)
+        if (bluetooth.send(envelope)) {
+            messageRepository.updateStatus(envelope.msgId, MessageStatus.SENT.name)
+        } else {
+            messageRepository.updateStatus(envelope.msgId, MessageStatus.FAILED.name)
+            _errorMessage.value = "Sin conexión Bluetooth; el archivo quedó en cola para reenviar."
         }
     }
 
     fun updatePin(newPin: String) {
-        _temporaryPin.value = newPin
-        pinPrefs.edit().putString("pin", newPin).apply()
-        encryption.deriveKeyFromPin(newPin)
+        val clean = newPin.trim()
+        if (clean.isEmpty()) return
+        _temporaryPin.value = clean
+        pinPrefs.edit().putString("pin", clean).apply()
+        encryption.deriveKeyFromPin(clean)
     }
 
     fun regeneratePin() {
@@ -349,17 +419,6 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
             connectionState = state,
             publicKeyFingerprint = _peerFingerprint.value ?: cur.publicKeyFingerprint
         )
-    }
-
-    private fun saveReceivedFile(id: String, fileName: String?, base64Content: String): String? {
-        return runCatching {
-            val data = Base64.decode(base64Content, Base64.NO_WRAP)
-            val name = fileName?.takeIf { it.isNotBlank() } ?: "archivo"
-            val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
-            val file = File(getApplication<Application>().filesDir, "${id}_$safe")
-            file.writeBytes(data)
-            "Archivo recibido (${data.size} bytes)"
-        }.getOrNull()
     }
 
     private fun parseType(kind: String): MessageType = try {
