@@ -30,9 +30,10 @@ import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Transporte real por Bluetooth Classic (RFCOMM / SPP). Maneja:
- *  - Descubrimiento de dispositivos (BroadcastReceiver ACTION_FOUND + RSSI).
+ *  - Descubrimiento de dispositivos: primero los ya EMPAREJADOS (bonded, lo más
+ *    confiable en Android 12+) y luego los visibles por ACTION_FOUND (con RSSI).
  *  - Hilo servidor (accept) que escucha conexiones entrantes.
- *  - Hilo cliente que conecta a un par descubierto.
+ *  - Hilo cliente que conecta a un par.
  *  - Hilo conectado con lectura/escritura enmarcada de [WireMessage].
  *
  * NO cifra nada: solo transporta el protocolo. La criptografía va en SecureMessenger.
@@ -78,6 +79,12 @@ class BluetoothConnectionManager(private val context: Context) {
     fun isBluetoothAvailable(): Boolean = adapter != null
     fun isEnabled(): Boolean = adapter?.isEnabled == true
 
+    /** Nombre legible; muchos dispositivos descubiertos vienen sin nombre en Android 12+. */
+    private fun nameOf(dev: BluetoothDevice): String =
+        runCatching { @Suppress("MissingPermission") dev.name }
+            .getOrNull()?.takeIf { it.isNotBlank() }
+            ?: "Dispositivo …${dev.address.takeLast(5)}"
+
     private fun hasScanPermission(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
             granted(Manifest.permission.BLUETOOTH_SCAN)
@@ -105,9 +112,7 @@ class BluetoothConnectionManager(private val context: Context) {
                         @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                     val rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE).toInt()
                     if (dev != null) {
-                        val name = runCatching {
-                            @Suppress("DEPRECATION", "MissingPermission") dev.name
-                        }.getOrNull() ?: return
+                        val name = nameOf(dev)
                         val list = _devices.value.toMutableList()
                         if (list.none { it.address == dev.address }) {
                             list.add(DiscoveredDevice(dev, name, dev.address, rssi))
@@ -125,13 +130,15 @@ class BluetoothConnectionManager(private val context: Context) {
     fun startDiscovery() {
         val a = adapter ?: run { emitError("Bluetooth no disponible en este dispositivo"); return }
         if (!hasScanPermission()) { emitError("Falta permiso de Bluetooth/Ubicación para escanear"); return }
+        // Sembrar con los dispositivos ya EMPAREJADOS (la vía más confiable en Android 12+).
+        val seed = runCatching { a.bondedDevices }
+            .getOrDefault(emptySet<BluetoothDevice>())
+            .map { DiscoveredDevice(it, nameOf(it), it.address, 0) }
         registerReceiver()
-        _devices.value = emptyList()
+        _devices.value = seed
         if (a.isDiscovering) a.cancelDiscovery()
         _state.value = State.DISCOVERING
-        if (!a.startDiscovery()) {
-            _state.value = State.LISTENING
-        }
+        runCatching { a.startDiscovery() }
         startServer()
     }
 
