@@ -36,6 +36,10 @@ import java.util.concurrent.atomic.AtomicReference
  *  - Hilo conectado con lectura/escritura enmarcada de [WireMessage].
  *
  * NO cifra nada: solo transporta el protocolo. La criptografía va en SecureMessenger.
+ *
+ * Nota: dentro de los inner classes que heredan de [Thread], hay que cualificar el enum
+ * propio como [BluetoothConnectionManager.State] porque `State` por sí solo resuelve a
+ * `java.lang.Thread.State` (sombreado por herencia).
  */
 @SuppressLint("MissingPermission")
 class BluetoothConnectionManager(private val context: Context) {
@@ -229,14 +233,16 @@ class BluetoothConnectionManager(private val context: Context) {
         } catch (e: IOException) { null }
         override fun run() {
             val s = socket ?: run {
-                emitError("No se pudo crear el socket Bluetooth"); _state.value = State.LISTENING; return
+                emitError("No se pudo crear el socket Bluetooth")
+                _state.value = BluetoothConnectionManager.State.LISTENING
+                return
             }
             try {
                 s.connect()
             } catch (e: IOException) {
                 runCatching { s.close() }
                 emitError("Conexión Bluetooth fallida: ${e.message}")
-                _state.value = State.LISTENING
+                _state.value = BluetoothConnectionManager.State.LISTENING
                 startServer()
                 return
             }
@@ -278,8 +284,8 @@ class BluetoothConnectionManager(private val context: Context) {
             connectedThread.compareAndSet(this, null)
             runCatching { inStream.close() }
             runCatching { outStream.close() }
-            if (_state.value == State.CONNECTED) {
-                _state.value = State.LISTENING
+            if (_state.value == BluetoothConnectionManager.State.CONNECTED) {
+                _state.value = BluetoothConnectionManager.State.LISTENING
                 startServer()
             }
         }
