@@ -225,7 +225,7 @@ class BluetoothConnectionManager(private val context: Context) {
 
     private inner class ConnectThread(device: BluetoothDevice) : Thread() {
         private val socket: BluetoothSocket? = try {
-            device.createRfcommWithServiceRecord(SERVICE_NAME, SERVICE_UUID)
+            device.createRfcommSocketToServiceRecord(SERVICE_UUID)
         } catch (e: IOException) { null }
         override fun run() {
             val s = socket ?: run {
