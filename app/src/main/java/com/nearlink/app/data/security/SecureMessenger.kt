@@ -191,8 +191,8 @@ class SecureMessenger(
 
     private fun markSeen(msgId: String) {
         if (seen.size > MAX_SEEN) {
-            val it = seen.iterator()
-            repeat(MAX_SEEN / 2) { if (it.hasNext()) { it.next(); it.remove() } }
+            val iter = seen.iterator()
+            repeat(MAX_SEEN / 2) { if (iter.hasNext()) { iter.next(); iter.remove() } }
         }
         persistSeen()
     }
