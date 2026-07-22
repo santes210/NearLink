@@ -79,6 +79,9 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
+    // Criptografía: X25519 (ECDH) + HKDF para el cifrado de extremo a extremo
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 

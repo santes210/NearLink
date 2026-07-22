@@ -1,4 +1,3 @@
-
 package com.nearlink.app.ui.screens
 
 import androidx.compose.foundation.layout.*
@@ -13,18 +12,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nearlink.app.domain.model.ConnectionState
-import com.nearlink.app.domain.model.PeerDevice
 import com.nearlink.app.ui.components.RssiIndicator
 import com.nearlink.app.viewmodel.NearLinkViewModel
 
 @Composable
 fun DiscoveryScreen(viewModel: NearLinkViewModel) {
     var isScanning by remember { mutableStateOf(false) }
-    val discoveredList = listOf(
-        PeerDevice("1", "Pixel 8 Pro (NearLink)", "AA:BB:CC:11:22:33", -55, ConnectionState.DISCONNECTED, "4821"),
-        PeerDevice("2", "Galaxy S24 Ultra", "AA:BB:CC:44:55:66", -68, ConnectionState.DISCONNECTED, "9134"),
-        PeerDevice("3", "Xiaomi 14 Pro", "AA:BB:CC:77:88:99", -82, ConnectionState.DISCONNECTED, "3052")
-    )
+    val discoveredList by viewModel.peers.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
+    val transferStatus by viewModel.transferStatus.collectAsState()
 
     Column(
         modifier = Modifier
@@ -38,7 +34,7 @@ fun DiscoveryScreen(viewModel: NearLinkViewModel) {
             color = MaterialTheme.colorScheme.primary
         )
         Text(
-            text = "Descubriendo dispositivos NearLink cercanos vía BLE / Classic",
+            text = "Descubriendo dispositivos NearLink cercanos vía Bluetooth Classic",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -49,7 +45,7 @@ fun DiscoveryScreen(viewModel: NearLinkViewModel) {
             Button(
                 onClick = {
                     isScanning = !isScanning
-                    viewModel.startScan()
+                    if (isScanning) viewModel.startScan() else viewModel.stopScan()
                 },
                 contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
             ) {
@@ -69,6 +65,27 @@ fun DiscoveryScreen(viewModel: NearLinkViewModel) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        if (discoveredList.isEmpty()) {
+            Text(
+                text = "Activa el Bluetooth en ambos teléfonos, hazlos visibles o emparéjalos, " +
+                    "y pulsa «Escanear Dispositivos». El PIN de emparejamiento por defecto es 4821 " +
+                    "(debe ser el mismo en los dos).",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        errorMessage?.let {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+        transferStatus?.let {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -84,13 +101,14 @@ fun DiscoveryScreen(viewModel: NearLinkViewModel) {
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(text = device.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                            Text(text = "PIN Temporal: ${device.pin}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                            Text(text = "MAC: ${device.address}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(text = "PIN emparejamiento: ${device.pin}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.height(4.dp))
                             RssiIndicator(rssi = device.rssi)
                         }
 
                         Button(onClick = { viewModel.selectPeer(device) }) {
-                            Text(text = "Conectar")
+                            Text(text = if (device.connectionState == ConnectionState.CONNECTED) "Conectado" else "Conectar")
                         }
                     }
                 }
