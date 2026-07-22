@@ -12,7 +12,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.nearlink.app.model.PeerDevice
+import com.nearlink.app.domain.model.ConnectionState
+import com.nearlink.app.domain.model.PeerDevice
 import com.nearlink.app.ui.components.RssiIndicator
 import com.nearlink.app.viewmodel.NearLinkViewModel
 
@@ -20,9 +21,9 @@ import com.nearlink.app.viewmodel.NearLinkViewModel
 fun DiscoveryScreen(viewModel: NearLinkViewModel) {
     var isScanning by remember { mutableStateOf(false) }
     val discoveredList = listOf(
-        PeerDevice("1", "Pixel 8 Pro (NearLink)", "AA:BB:CC:11:22:33", -55, false, "4821"),
-        PeerDevice("2", "Galaxy S24 Ultra", "AA:BB:CC:44:55:66", -68, false, "9134"),
-        PeerDevice("3", "Xiaomi 14 Pro", "AA:BB:CC:77:88:99", -82, false, "3052")
+        PeerDevice("1", "Pixel 8 Pro (NearLink)", "AA:BB:CC:11:22:33", -55, ConnectionState.DISCONNECTED, "4821"),
+        PeerDevice("2", "Galaxy S24 Ultra", "AA:BB:CC:44:55:66", -68, ConnectionState.DISCONNECTED, "9134"),
+        PeerDevice("3", "Xiaomi 14 Pro", "AA:BB:CC:77:88:99", -82, ConnectionState.DISCONNECTED, "3052")
     )
 
     Column(

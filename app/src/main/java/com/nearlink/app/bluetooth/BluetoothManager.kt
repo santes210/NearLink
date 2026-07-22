@@ -4,7 +4,8 @@ package com.nearlink.app.bluetooth
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
-import com.nearlink.app.model.PeerDevice
+import com.nearlink.app.domain.model.ConnectionState
+import com.nearlink.app.domain.model.PeerDevice
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,9 +35,9 @@ class BluetoothManager(private val context: Context) {
 
     fun startDiscovery(onDeviceFound: (PeerDevice) -> Unit) {
         val mockDevices = listOf(
-            PeerDevice("1", "Pixel 8 Pro (NearLink)", "AA:BB:CC:11:22:33", smoothRssi("1", -58), false, "4821", "A7F3:9C21"),
-            PeerDevice("2", "Galaxy S24 Ultra", "AA:BB:CC:44:55:66", smoothRssi("2", -70), false, "9134", "B8E4:1D32"),
-            PeerDevice("3", "Xiaomi 14 Pro (Relay)", "AA:BB:CC:77:88:99", smoothRssi("3", -80), false, "3052", "C9F5:2E43")
+            PeerDevice("1", "Pixel 8 Pro (NearLink)", "AA:BB:CC:11:22:33", smoothRssi("1", -58), ConnectionState.CONNECTED, "4821", "A7F3:9C21"),
+            PeerDevice("2", "Galaxy S24 Ultra", "AA:BB:CC:44:55:66", smoothRssi("2", -70), ConnectionState.DISCONNECTED, "9134", "B8E4:1D32"),
+            PeerDevice("3", "Xiaomi 14 Pro (Relay)", "AA:BB:CC:77:88:99", smoothRssi("3", -80), ConnectionState.DISCONNECTED, "3052", "C9F5:2E43")
         )
         _discoveredDevices.value = mockDevices
         mockDevices.forEach { onDeviceFound(it) }

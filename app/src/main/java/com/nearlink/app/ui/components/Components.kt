@@ -16,9 +16,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nearlink.app.model.Message
-import com.nearlink.app.model.MessageStatus
-import com.nearlink.app.model.MessageType
+import com.nearlink.app.domain.model.Message
+import com.nearlink.app.domain.model.MessageStatus
+import com.nearlink.app.domain.model.MessageType
 import kotlin.math.sin
 
 @Composable
@@ -140,6 +140,7 @@ fun ChatBubble(message: Message, isMe: Boolean) {
                             MessageStatus.SENT -> Icons.Default.Check
                             MessageStatus.DELIVERED -> Icons.Default.DoneAll
                             MessageStatus.READ -> Icons.Default.DoneAll
+                            MessageStatus.FAILED -> Icons.Default.Error
                         }
                         Icon(statusIcon, contentDescription = "Estado", modifier = Modifier.size(12.dp), tint = if (message.status == MessageStatus.READ) MaterialTheme.colorScheme.primary else textColor.copy(alpha = 0.7f))
                     }
