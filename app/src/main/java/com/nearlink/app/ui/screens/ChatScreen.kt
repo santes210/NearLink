@@ -1,6 +1,7 @@
-
 package com.nearlink.app.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,9 +23,21 @@ fun ChatScreen(viewModel: NearLinkViewModel) {
     val selectedPeer by viewModel.selectedPeer.collectAsState()
     val messagesMap by viewModel.messages.collectAsState()
     val isRecording by viewModel.isRecordingVoice.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState()
+    val peerFp by viewModel.peerFingerprint.collectAsState()
+    val transferStatus by viewModel.transferStatus.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
     var textInput by remember { mutableStateOf("") }
     var showTtlMenu by remember { mutableStateOf(false) }
     var selectedTtl by remember { mutableStateOf(0) }
+
+    // Selector de archivos real: al elegir uno se lee, cifra E2E y envía por la malla.
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val name = uri.lastPathSegment?.substringAfterLast('/')?.substringAfterLast(':') ?: "archivo"
+            viewModel.sendFileUri(uri, name)
+        }
+    }
 
     val peerMessages = selectedPeer?.let { messagesMap[it.id] } ?: emptyList()
 
@@ -47,6 +60,16 @@ fun ChatScreen(viewModel: NearLinkViewModel) {
                     text = selectedPeer?.name ?: "Chat P2P",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = when (connectionState) {
+                        com.nearlink.app.domain.model.ConnectionState.CONNECTED -> if (peerFp != null) "🔒 Enlace seguro (mesh)" else "Handshake…"
+                        com.nearlink.app.domain.model.ConnectionState.CONNECTING -> "Conectando…"
+                        com.nearlink.app.domain.model.ConnectionState.SCANNING -> "Escaneando…"
+                        else -> "Sin enlace directo (mensajes en cola)"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 selectedPeer?.let { RssiIndicator(rssi = it.rssi) }
             }
@@ -72,7 +95,14 @@ fun ChatScreen(viewModel: NearLinkViewModel) {
             Icon(Icons.Default.Lock, contentDescription = "X25519 & AES-256", tint = MaterialTheme.colorScheme.primary)
         }
 
-        Divider(modifier = Modifier.padding(vertical = 12.dp))
+        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+        errorMessage?.let {
+            Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+        transferStatus?.let {
+            Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        }
 
         // Messages List
         LazyColumn(
@@ -113,8 +143,8 @@ fun ChatScreen(viewModel: NearLinkViewModel) {
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { viewModel.sendWifiDirectFile("video_expedicion_4k.mp4") }) {
-                Icon(Icons.Default.WifiTethering, contentDescription = "Wi-Fi Direct Archivo Pesado")
+            IconButton(onClick = { filePicker.launch(arrayOf("*/*")) }) {
+                Icon(Icons.Default.AttachFile, contentDescription = "Adjuntar archivo cifrado")
             }
 
             IconButton(onClick = { viewModel.toggleVoiceRecording() }) {
@@ -124,7 +154,7 @@ fun ChatScreen(viewModel: NearLinkViewModel) {
             OutlinedTextField(
                 value = textInput,
                 onValueChange = { textInput = it },
-                placeholder = { Text(if (selectedTtl > 0) "Mensaje TTL (${selectedTtl}s)..." else "Mensaje cifrado...") },
+                placeholder = { Text(if (selectedTtl > 0) "Mensaje TTL (${selectedTtl}s)..." else "Mensaje cifrado…") },
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = 8.dp),

@@ -3,11 +3,14 @@ package com.nearlink.app.viewmodel
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nearlink.app.bluetooth.BluetoothConnectionManager
 import com.nearlink.app.data.local.NearLinkDatabase
 import com.nearlink.app.data.repository.MessageRepositoryImpl
+import com.nearlink.app.data.security.ContactStore
 import com.nearlink.app.data.security.EncryptionManager
 import com.nearlink.app.data.security.IdentityManager
 import com.nearlink.app.data.security.SecureMessenger
@@ -18,15 +21,16 @@ import com.nearlink.app.domain.model.MessageType
 import com.nearlink.app.domain.model.PeerDevice
 import com.nearlink.app.service.NearLinkForegroundService
 import com.nearlink.app.transport.WireMessage
-import com.nearlink.app.wifidirect.FileTransferService
 import com.nearlink.app.wifidirect.WifiDirectManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import java.net.ServerSocket
+import kotlinx.coroutines.withContext
+import java.io.File
 
 enum class Screen {
     HOME, DISCOVERY, CHAT, SETTINGS
@@ -39,8 +43,8 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
     private val database = NearLinkDatabase.getDatabase(application)
     private val messageRepository = MessageRepositoryImpl(database.messageDao(), encryption)
 
-    private val pinPrefs = application.getSharedPreferences("nearlink_pairing", Context.MODE_PRIVATE)
-    private val secureMessenger = SecureMessenger(identity) { _temporaryPin.value }
+    private val contactStore = ContactStore(application)
+    private val secureMessenger = SecureMessenger(identity, contactStore, application) { _temporaryPin.value }
 
     private val bluetooth = BluetoothConnectionManager(application)
     private val wifi = WifiDirectManager(application)
@@ -58,8 +62,12 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
     private val _messages = MutableStateFlow<Map<String, List<Message>>>(emptyMap())
     val messages: StateFlow<Map<String, List<Message>>> = _messages.asStateFlow()
 
-    private val _temporaryPin = MutableStateFlow(pinPrefs.getString("pin", "4821") ?: "4821")
+    private val _temporaryPin = MutableStateFlow(
+        application.getSharedPreferences("nearlink_pairing", Context.MODE_PRIVATE)
+            .getString("pin", "4821") ?: "4821"
+    )
     val temporaryPin: StateFlow<String> = _temporaryPin.asStateFlow()
+    private val pinPrefs = application.getSharedPreferences("nearlink_pairing", Context.MODE_PRIVATE)
 
     private val _isRecordingVoice = MutableStateFlow(false)
     val isRecordingVoice: StateFlow<Boolean> = _isRecordingVoice.asStateFlow()
@@ -80,11 +88,9 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
     val transferStatus: StateFlow<String?> = _transferStatus.asStateFlow()
 
     private var activePeerId: String? = null
-    private var wifiReceiveServer: ServerSocket? = null
     private val observedPeers = mutableSetOf<String>()
 
     init {
-        // Servicio en primer plano (mantén la escucha Bluetooth viva)
         runCatching {
             val serviceIntent = Intent(application, NearLinkForegroundService::class.java)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
@@ -96,7 +102,7 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
         bluetooth.startServer()
         observeBluetooth()
         observeSecureLayer()
-        observeWifi()
+        observeDeliveryAcks()
         startTtlCleanup()
     }
 
@@ -113,10 +119,23 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
                 }
                 _connectionState.value = mapped
                 if (st == BluetoothConnectionManager.State.CONNECTED) {
-                    // Inicia el handshake seguro enviando nuestra llave pública
+                    // Al conectar: enviamos identidad + directorio + bandeja de salida (store-and-forward)
                     bluetooth.send(secureMessenger.beginHandshake())
+                    bluetooth.send(secureMessenger.buildContacts())
+                    flushOutbox()
                 }
                 refreshSelectedPeerState(mapped)
+            }
+        }
+        viewModelScope.launch {
+            secureMessenger.peerFingerprint.collect { fp ->
+                if (fp != null) {
+                    activePeerId = fp
+                    _selectedPeer.value?.let { cur ->
+                        _selectedPeer.value = cur.copy(id = fp, publicKeyFingerprint = fp)
+                    }
+                    observeMessages(fp)
+                }
             }
         }
         viewModelScope.launch {
@@ -130,20 +149,17 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
                         connectionState = if (d.address == activePeerId && bluetooth.state.value == BluetoothConnectionManager.State.CONNECTED)
                             ConnectionState.CONNECTED else ConnectionState.DISCONNECTED,
                         pin = _temporaryPin.value,
-                        publicKeyFingerprint = if (d.address == activePeerId) _peerFingerprint.value ?: "—" else "—"
+                        publicKeyFingerprint = "—"
                     )
                 }
             }
         }
         viewModelScope.launch {
             bluetooth.incoming.collect { msg ->
-                when (msg) {
-                    is WireMessage.KeyExchange -> secureMessenger.handleIncoming(msg)
-                    is WireMessage.Encrypted -> {
-                        secureMessenger.handleIncoming(msg)
-                        bluetooth.send(WireMessage.Ack(msg.id)) // confirmamos recepción
-                    }
-                    is WireMessage.Ack -> markDelivered(msg.id)
+                secureMessenger.handleIncoming(msg)
+                if (secureMessenger.consumeFlushRequest()) {
+                    bluetooth.send(secureMessenger.buildContacts())
+                    flushOutbox()
                 }
             }
         }
@@ -155,12 +171,18 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
     private fun observeSecureLayer() {
         viewModelScope.launch {
             secureMessenger.decrypted.collect { app ->
-                val peerId = activePeerId ?: return@collect
+                val peerId = app.senderFp
+                val displayContent = if (app.kind == "FILE") {
+                    val saved = saveReceivedFile(app.id, app.fileName, app.content)
+                    saved ?: app.content
+                } else {
+                    app.content
+                }
                 val incoming = Message(
                     id = app.id,
                     senderId = peerId,
                     recipientId = "me",
-                    content = app.content,
+                    content = displayContent,
                     timestamp = app.timestamp,
                     type = parseType(app.kind),
                     status = MessageStatus.DELIVERED,
@@ -170,49 +192,17 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
                     isSos = app.kind == "SOS"
                 )
                 messageRepository.sendMessage(incoming)
-                refreshMessages(peerId)
+                observeMessages(peerId)
+                // Confirmar entrega de vuelta (llega al menos al par directamente conectado)
+                bluetooth.send(secureMessenger.buildAck(app.id))
             }
         }
     }
 
-    private fun observeWifi() {
+    private fun observeDeliveryAcks() {
         viewModelScope.launch {
-            wifi.connection.collect { info ->
-                if (info != null && info.isGroupOwner) startWifiReceiveLoop()
-            }
-        }
-    }
-
-    private fun startWifiReceiveLoop() {
-        viewModelScope.launch {
-            if (wifiReceiveServer != null) return@launch
-            try {
-                val server = ServerSocket(FileTransferService.PORT)
-                wifiReceiveServer = server
-                while (true) {
-                    val received = FileTransferService.receive(server, secureMessenger.fileKey()) ?: continue
-                    val peerId = activePeerId ?: "wifi"
-                    val msg = Message(
-                        id = "f" + System.currentTimeMillis(),
-                        senderId = peerId,
-                        recipientId = "me",
-                        content = "Archivo recibido por Wi-Fi Direct",
-                        timestamp = System.currentTimeMillis(),
-                        type = MessageType.FILE,
-                        status = MessageStatus.DELIVERED,
-                        isEncrypted = true,
-                        fileName = received.name,
-                        ttlSeconds = 0,
-                        isSos = false
-                    )
-                    messageRepository.sendMessage(msg)
-                    refreshMessages(peerId)
-                    _transferStatus.value = "Archivo recibido: ${received.name} (${received.data.size} bytes)"
-                }
-            } catch (e: Exception) {
-                _transferStatus.value = "Recepción Wi-Fi Direct detenida"
-            } finally {
-                wifiReceiveServer = null
+            secureMessenger.deliveryAcks.collect { msgId ->
+                messageRepository.updateStatus(msgId, MessageStatus.DELIVERED.name)
             }
         }
     }
@@ -222,8 +212,14 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
             while (true) {
                 delay(5000)
                 messageRepository.cleanupExpiredMessages()
-                activePeerId?.let { refreshMessages(it) }
             }
+        }
+    }
+
+    /** Reenvía toda la bandeja de salida al par conectado (store-and-forward). */
+    private fun flushOutbox() {
+        for (env in secureMessenger.outboxSnapshot()) {
+            bluetooth.send(env)
         }
     }
 
@@ -255,13 +251,19 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
         ttlSeconds: Int = 0,
         isSos: Boolean = false
     ) {
-        val peer = _selectedPeer.value ?: return
-        val msgId = "m" + System.currentTimeMillis()
+        val recipient = secureMessenger.peerFingerprint.value ?: run {
+            _errorMessage.value = "Aún conectando… espera a que se complete el enlace seguro."
+            return
+        }
+        val envelope = secureMessenger.sealToRecipient(recipient, type.name, content, ttlSeconds, fileName) ?: run {
+            _errorMessage.value = "No se conoce la llave del destinatario aún (espera el handshake)."
+            return
+        }
         viewModelScope.launch {
             val message = Message(
-                id = msgId,
+                id = envelope.msgId,
                 senderId = "me",
-                recipientId = peer.id,
+                recipientId = recipient,
                 content = content,
                 timestamp = System.currentTimeMillis(),
                 type = type,
@@ -272,16 +274,13 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
                 isSos = isSos
             )
             messageRepository.sendMessage(message)
-            refreshMessages(peer.id)
-
-            val encrypted = secureMessenger.encryptAppMessage(type.name, content, msgId, ttlSeconds, fileName)
-            if (encrypted != null && bluetooth.send(encrypted)) {
-                messageRepository.updateStatus(msgId, MessageStatus.SENT.name)
+            observeMessages(recipient)
+            if (bluetooth.send(envelope)) {
+                messageRepository.updateStatus(envelope.msgId, MessageStatus.SENT.name)
             } else {
-                messageRepository.updateStatus(msgId, MessageStatus.FAILED.name)
-                _errorMessage.value = "No hay canal seguro conectado. Conecta un par primero."
+                messageRepository.updateStatus(envelope.msgId, MessageStatus.FAILED.name)
+                _errorMessage.value = "No hay conexión Bluetooth activa; el mensaje quedó en la bandeja y se reenviará."
             }
-            refreshMessages(peer.id)
         }
     }
 
@@ -300,24 +299,24 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
         sendMessage("Archivo adjunto: $fileName", MessageType.FILE, fileName, 0, false)
     }
 
-    /** Si hay grupo Wi-Fi Direct activo, transfiere por ahí (más rápido); si no, por Bluetooth. */
-    fun sendWifiDirectFile(fileName: String) {
-        val conn = wifi.connection.value
+    /** Selector de archivos real: lee el Uri, lo cifra E2E y lo envía por la malla. */
+    fun sendFileUri(uri: Uri, displayName: String) {
         viewModelScope.launch {
-            if (conn != null && !conn.isGroupOwner && conn.groupOwnerAddress != null) {
-                _transferStatus.value = "Transfiriendo '$fileName' por Wi-Fi Direct…"
-                val payload = ("Contenido de ejemplo de $fileName generado por NearLink.\n" +
-                    "X25519 + AES-256-GCM — transferencia P2P segura.").toByteArray()
-                val ok = FileTransferService.send(
-                    conn.groupOwnerAddress, secureMessenger.fileKey(), fileName, payload
-                )
-                _transferStatus.value = if (ok) "✓ '$fileName' enviado por Wi-Fi Direct (${payload.size} bytes)"
-                else "✗ Falló la transferencia Wi-Fi Direct; enviando por Bluetooth."
-                if (!ok) sendFile(fileName)
-            } else {
-                _transferStatus.value = "Sin grupo Wi-Fi Direct — enviando por Bluetooth."
-                sendFile(fileName)
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching {
+                    getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                }.getOrNull()
+            } ?: run {
+                _errorMessage.value = "No se pudo leer el archivo."
+                return@launch
             }
+            if (bytes.size > MAX_FILE_BYTES) {
+                _errorMessage.value = "Archivo demasiado grande (máximo ${MAX_FILE_BYTES / 1_000_000} MB por la malla)."
+                return@launch
+            }
+            _transferStatus.value = "Enviando '$displayName' (${bytes.size} bytes) cifrado por la malla…"
+            val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            sendMessage(b64, MessageType.FILE, displayName, 0, false)
         }
     }
 
@@ -336,23 +335,12 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
 
     // ---------------- Helpers ----------------
     private fun observeMessages(peerId: String) {
-        if (!observedPeers.add(peerId)) return // ya hay un colector reactivo para este par
+        if (!observedPeers.add(peerId)) return
         viewModelScope.launch {
             messageRepository.getMessagesForPeer(peerId).collect { list ->
                 _messages.value = _messages.value + (peerId to list)
             }
         }
-    }
-
-    private suspend fun refreshMessages(peerId: String) {
-        // Room es reactivo: el colector abierto en observeMessages mantiene el mapa al día.
-        if (peerId !in observedPeers) observeMessages(peerId)
-    }
-
-    private suspend fun markDelivered(messageId: String) {
-        messageRepository.updateStatus(messageId, MessageStatus.DELIVERED.name)
-        delay(800)
-        messageRepository.updateStatus(messageId, MessageStatus.READ.name)
     }
 
     private fun refreshSelectedPeerState(state: ConnectionState) {
@@ -361,6 +349,17 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
             connectionState = state,
             publicKeyFingerprint = _peerFingerprint.value ?: cur.publicKeyFingerprint
         )
+    }
+
+    private fun saveReceivedFile(id: String, fileName: String?, base64Content: String): String? {
+        return runCatching {
+            val data = Base64.decode(base64Content, Base64.NO_WRAP)
+            val name = fileName?.takeIf { it.isNotBlank() } ?: "archivo"
+            val safe = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val file = File(getApplication<Application>().filesDir, "${id}_$safe")
+            file.writeBytes(data)
+            "Archivo recibido (${data.size} bytes)"
+        }.getOrNull()
     }
 
     private fun parseType(kind: String): MessageType = try {
@@ -378,6 +377,9 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
         super.onCleared()
         bluetooth.shutdown()
         wifi.stop()
-        runCatching { wifiReceiveServer?.close() }
+    }
+
+    companion object {
+        private const val MAX_FILE_BYTES = 8 * 1024 * 1024 // 8 MB por la malla Bluetooth
     }
 }

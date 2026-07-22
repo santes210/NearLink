@@ -75,6 +75,25 @@ object Crypto {
     fun deriveFileKey(sessionKey: ByteArray): ByteArray =
         deriveSessionKey(sessionKey, "nearlink-files".toByteArray(), "files")
 
+    // ---------- E2E a la identidad del destinatario (para relay por la malla) ----------
+    // La llave se deriva de ECDH(miPriv, pubDestinatario) + PIN. Solo el destinatario,
+    // con su llave privada, puede derivar la misma llave y descifrar. Los nodos
+    // intermedios (relays) solo reenvían el sobre cifrado sin poder leerlo.
+    fun deriveE2EKey(secret: ByteArray, pairingPin: String): ByteArray {
+        val gen = HKDFBytesGenerator(SHA256Digest())
+        gen.init(HKDFParameters(
+            secret,
+            "nearlink-e2e".toByteArray(Charsets.UTF_8),
+            ("NearLink-E2E:" + pairingPin).toByteArray(Charsets.UTF_8)
+        ))
+        val out = ByteArray(KEY_LEN)
+        gen.generateBytes(out, 0, KEY_LEN)
+        return out
+    }
+
+    fun e2eKey(myPriv: PrivateKey, peerPub: PublicKey, pairingPin: String): ByteArray =
+        deriveE2EKey(sharedSecret(myPriv, peerPub), pairingPin)
+
     // ---------- MAC / Hash ----------
     fun hmacSha256(key: ByteArray, data: ByteArray): ByteArray {
         val mac = Mac.getInstance("HmacSHA256")
