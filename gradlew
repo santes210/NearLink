@@ -53,4 +53,4 @@ fi
 GRADLE_HOME=$app_home/gradle/wrapper
 
 # Execute Gradle
-exec "$JAVACMD"     -Dorg.gradle.appname="$APP_BASE_NAME"     -classpath "$APP_HOME/gradle/wrapper/gradle-wrapper.jar"     org.gradle.wrapper.GradleWrapperMain     "$@"
+exec "$JAVACMD"     -Dorg.gradle.appname="$APP_BASE_NAME"     -classpath "$app_home/gradle/wrapper/gradle-wrapper.jar"     org.gradle.wrapper.GradleWrapperMain     "$@"

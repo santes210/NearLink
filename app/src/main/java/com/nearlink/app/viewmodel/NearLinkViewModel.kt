@@ -151,6 +151,14 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
         sendMessage("Archivo adjunto Wi-Fi Direct: $fileName", MessageType.FILE, fileName, 0, false)
     }
 
+    fun sendWifiDirectFile(fileName: String) {
+        sendFile(fileName)
+    }
+
+    fun startScan() {
+        loadPeers()
+    }
+
     fun updatePin(newPin: String) {
         _temporaryPin.value = newPin
         encryptionManager.deriveKeyFromPin(newPin)
