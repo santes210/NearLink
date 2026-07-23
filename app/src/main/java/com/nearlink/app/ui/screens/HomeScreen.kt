@@ -1,4 +1,3 @@
-
 package com.nearlink.app.ui.screens
 
 import androidx.compose.foundation.clickable
@@ -13,13 +12,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.nearlink.app.domain.model.ConnectionState
-import com.nearlink.app.ui.components.RssiIndicator
 import com.nearlink.app.viewmodel.NearLinkViewModel
 
 @Composable
 fun HomeScreen(viewModel: NearLinkViewModel) {
-    val peers by viewModel.peers.collectAsState()
+    val contacts by viewModel.contacts.collectAsState()
+    val connected by viewModel.connectedPeers.collectAsState()
+    val identityFp by viewModel.identityFingerprint.collectAsState()
 
     Column(
         modifier = Modifier
@@ -27,18 +26,9 @@ fun HomeScreen(viewModel: NearLinkViewModel) {
             .padding(16.dp)
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column {
-                Text(
-                    text = "NearLink P2P",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "Modo Mesh • X25519 • Cifrado Extremo",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Column(modifier = Modifier.weight(1f)) {
+                Text("NearLink", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Text("Malla P2P • X25519 • E2E • hasta 16 saltos", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Button(
                 onClick = { viewModel.sendSosAlert() },
@@ -52,75 +42,63 @@ fun HomeScreen(viewModel: NearLinkViewModel) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-        ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Default.Radar, contentDescription = "Beacon", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Hub, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(text = "Baliza BLE Silenciosa Activa", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text(text = "Transmitiendo presencia offline en segundo plano", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text("Nodos conectados: ${connected.size}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text(
+                        if (connected.isEmpty()) "Sin transporte. Ve a «Radar» y conecta un nodo."
+                        else "Transporte activo: listo para reenviar la malla.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
+        Text("Contactos (destinatarios)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         Text(
-            text = "Nodos y Chats en Red Mesh",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
+            "Toca un contacto para chatear. Aunque no esté conectado directo, el mensaje viaja por la malla (saltando de nodo en nodo) hasta él.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(peers) { peer ->
+        if (contacts.isEmpty()) {
+            Text(
+                "Todavía no tienes contactos. Ve a «Radar», empareja y conecta un nodo: al hacerlo, su identidad aparecerá aquí.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(contacts) { fp ->
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { viewModel.selectPeer(peer) },
+                    modifier = Modifier.fillMaxWidth().clickable { viewModel.selectContact(fp) },
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = MaterialTheme.shapes.medium,
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            modifier = Modifier.size(48.dp)
-                        ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.size(40.dp)) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.PhoneAndroid, contentDescription = "Dispositivo", tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
                             }
                         }
-
-                        Spacer(modifier = Modifier.width(16.dp))
-
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(text = peer.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                            Text(text = "Fp: ${peer.publicKeyFingerprint}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.height(2.dp))
-                            RssiIndicator(rssi = peer.rssi)
+                            Text("Nodo …${fp.takeLast(8)}", fontWeight = FontWeight.Bold)
+                            Text(fp, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
                         }
-
-                        if (peer.connectionState == ConnectionState.CONNECTED) {
-                            Badge(containerColor = MaterialTheme.colorScheme.primary) {
-                                Text(text = "Mesh Link", modifier = Modifier.padding(4.dp))
-                            }
-                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = "Abrir chat")
                     }
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Tu huella:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(identityFp, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }

@@ -23,8 +23,8 @@ import com.nearlink.app.viewmodel.NearLinkViewModel
 fun DiscoveryScreen(viewModel: NearLinkViewModel) {
     var isScanning by remember { mutableStateOf(false) }
     val discoveredList by viewModel.peers.collectAsState()
+    val connected by viewModel.connectedPeers.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
-    val transferStatus by viewModel.transferStatus.collectAsState()
     val context = LocalContext.current
 
     fun makeDiscoverable() {
@@ -35,46 +35,29 @@ fun DiscoveryScreen(viewModel: NearLinkViewModel) {
             context.startActivity(intent)
         }
     }
-
     fun openBluetoothSettings() {
         runCatching { context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "Radar Bluetooth P2P",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Text(
-            text = "Descubriendo dispositivos NearLink cercanos vía Bluetooth Classic",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        Text("Radar Bluetooth", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Text("Conecta los NODOS DE TRANSPORTE de la malla (luego chateas desde Inicio)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         Spacer(modifier = Modifier.height(16.dp))
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = {
-                    isScanning = !isScanning
-                    if (isScanning) viewModel.startScan() else viewModel.stopScan()
-                },
+                onClick = { isScanning = !isScanning; if (isScanning) viewModel.startScan() else viewModel.stopScan() },
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                Icon(if (isScanning) Icons.Default.Stop else Icons.Default.Radar, contentDescription = "Escanear")
+                Icon(if (isScanning) Icons.Default.Stop else Icons.Default.Radar, contentDescription = null)
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(if (isScanning) "Detener" else "Escanear")
             }
             OutlinedButton(onClick = { makeDiscoverable() }) {
                 Icon(Icons.Default.Visibility, contentDescription = null)
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Hacer visible")
+                Text("Visible")
             }
             OutlinedButton(onClick = { openBluetoothSettings() }) {
                 Icon(Icons.Default.Bluetooth, contentDescription = null)
@@ -83,59 +66,37 @@ fun DiscoveryScreen(viewModel: NearLinkViewModel) {
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
+        AssistChip(onClick = {}, label = { Text("Conectados: ${connected.size}") }, leadingIcon = { Icon(Icons.Default.Link, contentDescription = null) })
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text("Dispositivos", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
         Text(
-            text = "Dispositivos",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = "Para conectar dos teléfonos: 1) pulsa «Emparejar» y vínculalos en Ajustes, " +
-                "o 2) pulsa «Hacer visible» en uno y «Escanear» en el otro. Los emparejados " +
-                "aparecen al instante. PIN de emparejamiento por defecto: 4821 (igual en ambos).",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            "1) «Emparejar» y vincúlalos en Ajustes, o 2) «Visible» en uno y «Escanear» en el otro. Toca «Conectar» para sumarlo a la malla.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         errorMessage?.let {
             Spacer(modifier = Modifier.height(8.dp))
-            Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        }
-        transferStatus?.let {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(discoveredList) { device ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                val isConnected = device.connectionState == ConnectionState.CONNECTED
+                Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(text = device.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                            Text(text = "MAC: ${device.address}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(text = "PIN: ${device.pin}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                            if (device.rssi != 0) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                RssiIndicator(rssi = device.rssi)
-                            }
+                            Text(device.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                            Text("MAC: ${device.address}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (device.rssi != 0) { Spacer(modifier = Modifier.height(4.dp)); RssiIndicator(rssi = device.rssi) }
                         }
-                        Button(onClick = { viewModel.selectPeer(device) }) {
-                            Text(text = if (device.connectionState == ConnectionState.CONNECTED) "Conectado" else "Conectar")
+                        Button(onClick = { viewModel.connectPeer(device) }) {
+                            Text(if (isConnected) "Conectado" else "Conectar")
                         }
                     }
                 }

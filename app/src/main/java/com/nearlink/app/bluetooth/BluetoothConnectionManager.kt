@@ -26,29 +26,31 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
 import java.util.UUID
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Transporte real por Bluetooth Classic (RFCOMM / SPP). Maneja:
- *  - Descubrimiento de dispositivos: primero los ya EMPAREJADOS (bonded, lo más
- *    confiable en Android 12+) y luego los visibles por ACTION_FOUND (con RSSI).
- *  - Hilo servidor (accept) que escucha conexiones entrantes.
- *  - Hilo cliente que conecta a un par.
- *  - Hilo conectado con lectura/escritura enmarcada de [WireMessage].
+ * Transporte real por Bluetooth Classic (RFCOMM / SPP) con SOPORTE DE MÚLTIPLES
+ * CONEXIONES SIMULTÁNEAS, para que un nodo actúe como repetidor (relay) entre
+ * varios pares a la vez (clave para la malla multi-salto).
  *
- * NO cifra nada: solo transporta el protocolo. La criptografía va en SecureMessenger.
+ *  - Descubrimiento: primero dispositivos EMPAREJADOS y luego ACTION_FOUND.
+ *  - AcceptThread en bucle: acepta cuantos clientes quieran conectarse.
+ *  - connect(): conexión saliente a un par.
+ *  - Cada conexión tiene su ConnectedThread de lectura/escritura enmarcada.
+ *  - send() difunde a todos; sendToAllExcept() difunde a todos salvo el origen
+ *    (para el flooding del relay sin eco).
  *
- * Nota: dentro de los inner classes que heredan de [Thread], hay que cualificar el enum
- * propio como [BluetoothConnectionManager.State] porque `State` por sí solo resuelve a
- * `java.lang.Thread.State` (sombreado por herencia).
+ * NO cifra nada: solo transporta. La criptografía va en SecureMessenger.
  */
 @SuppressLint("MissingPermission")
 class BluetoothConnectionManager(private val context: Context) {
 
     enum class State { IDLE, DISCOVERING, LISTENING, CONNECTING, CONNECTED }
 
+    /** Mensaje entrante con la conexión de origen (para evitar eco en el relay). */
+    data class Incoming(val sourceKey: String, val message: WireMessage)
+
     companion object {
-        // UUID fijo (SPP). Debe ser IGUAL en ambos dispositivos para que RFCOMM conecte.
         val SERVICE_UUID: UUID = UUID.fromString("fa87c0d0-afac-11de-8a39-0800200c9a66")
         const val SERVICE_NAME = "NearLink"
     }
@@ -62,41 +64,38 @@ class BluetoothConnectionManager(private val context: Context) {
     private val _devices = MutableStateFlow<List<DiscoveredDevice>>(emptyList())
     val discoveredDevices: StateFlow<List<DiscoveredDevice>> = _devices.asStateFlow()
 
-    private val _incoming = MutableSharedFlow<WireMessage>(extraBufferCapacity = 64)
-    val incoming: SharedFlow<WireMessage> = _incoming.asSharedFlow()
+    private val _connected = MutableStateFlow<List<String>>(emptyList())
+    val connectedPeers: StateFlow<List<String>> = _connected.asStateFlow()
+
+    private val _incoming = MutableSharedFlow<Incoming>(extraBufferCapacity = 128)
+    val incoming: SharedFlow<Incoming> = _incoming.asSharedFlow()
 
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val errors: SharedFlow<String> = _errors.asSharedFlow()
 
-    private val connectedThread = AtomicReference<ConnectedThread?>(null)
+    private val connections = ConcurrentHashMap<String, ConnectedThread>()
     private var acceptThread: AcceptThread? = null
-    private var connectThread: ConnectThread? = null
     @Volatile private var receiverRegistered = false
 
-    /** Un dispositivo descubierto con su nombre, MAC y nivel de señal. */
     data class DiscoveredDevice(val device: BluetoothDevice, val name: String, val address: String, val rssi: Int)
 
     fun isBluetoothAvailable(): Boolean = adapter != null
     fun isEnabled(): Boolean = adapter?.isEnabled == true
 
-    /** Nombre legible; muchos dispositivos descubiertos vienen sin nombre en Android 12+. */
     private fun nameOf(dev: BluetoothDevice): String =
         runCatching { @Suppress("MissingPermission") dev.name }
             .getOrNull()?.takeIf { it.isNotBlank() }
             ?: "Dispositivo …${dev.address.takeLast(5)}"
 
-    private fun hasScanPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+    private fun hasScanPermission(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
             granted(Manifest.permission.BLUETOOTH_SCAN)
-        else
-            granted(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
+        else granted(Manifest.permission.ACCESS_FINE_LOCATION)
 
-    private fun hasConnectPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+    private fun hasConnectPermission(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
             granted(Manifest.permission.BLUETOOTH_CONNECT)
         else true
-    }
 
     private fun granted(perm: String): Boolean =
         ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
@@ -108,14 +107,12 @@ class BluetoothConnectionManager(private val context: Context) {
                 BluetoothDevice.ACTION_FOUND -> {
                     val dev = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                         intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                    else
-                        @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                    else @Suppress("DEPRECATION") intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                     val rssi = intent.getShortExtra(BluetoothDevice.EXTRA_RSSI, Short.MIN_VALUE).toInt()
                     if (dev != null) {
-                        val name = nameOf(dev)
                         val list = _devices.value.toMutableList()
                         if (list.none { it.address == dev.address }) {
-                            list.add(DiscoveredDevice(dev, name, dev.address, rssi))
+                            list.add(DiscoveredDevice(dev, nameOf(dev), dev.address, rssi))
                             _devices.value = list
                         }
                     }
@@ -128,9 +125,8 @@ class BluetoothConnectionManager(private val context: Context) {
     }
 
     fun startDiscovery() {
-        val a = adapter ?: run { emitError("Bluetooth no disponible en este dispositivo"); return }
+        val a = adapter ?: run { emitError("Bluetooth no disponible"); return }
         if (!hasScanPermission()) { emitError("Falta permiso de Bluetooth/Ubicación para escanear"); return }
-        // Sembrar con los dispositivos ya EMPAREJADOS (la vía más confiable en Android 12+).
         val seed = runCatching { a.bondedDevices }
             .getOrDefault(emptySet<BluetoothDevice>())
             .map { DiscoveredDevice(it, nameOf(it), it.address, 0) }
@@ -179,37 +175,45 @@ class BluetoothConnectionManager(private val context: Context) {
     fun connect(device: BluetoothDevice) {
         val a = adapter ?: return
         if (!hasConnectPermission()) { emitError("Falta permiso BLUETOOTH_CONNECT"); return }
+        if (connections.containsKey(device.address)) return // ya conectado
         a.cancelDiscovery()
-        connectThread?.cancel()
         _state.value = State.CONNECTING
-        connectThread = ConnectThread(device).also { it.start() }
+        ConnectThread(device).start()
     }
 
-    fun send(msg: WireMessage): Boolean = connectedThread.get()?.write(msg) ?: false
+    /** Difunde a todas las conexiones activas. */
+    fun send(msg: WireMessage): Boolean {
+        var any = false
+        for (t in connections.values) if (t.write(msg)) any = true
+        return any
+    }
 
-    fun disconnect() {
-        connectedThread.getAndSet(null)?.cancel()
-        connectThread?.cancel(); connectThread = null
-        if (_state.value == State.CONNECTED) _state.value = State.LISTENING
-        startServer()
+    /** Difunde a todas las conexiones excepto la de origen (flooding sin eco). */
+    fun sendToAllExcept(sourceKey: String, msg: WireMessage) {
+        for ((key, t) in connections) if (key != sourceKey) t.write(msg)
+    }
+
+    private fun onConnected(socket: BluetoothSocket, key: String) {
+        connections[key]?.cancel()
+        val t = ConnectedThread(socket, key)
+        connections[key] = t
+        t.start()
+        refreshConnected()
+        if (_state.value != State.CONNECTED) _state.value = State.CONNECTED
+    }
+
+    private fun refreshConnected() {
+        _connected.value = connections.keys.toList().sorted()
     }
 
     fun shutdown() {
         unregisterReceiver()
         runCatching { adapter?.cancelDiscovery() }
-        connectedThread.getAndSet(null)?.cancel()
-        connectThread?.cancel(); connectThread = null
+        for (t in connections.values) t.cancel()
+        connections.clear()
+        refreshConnected()
         acceptThread?.cancel(); acceptThread = null
         _state.value = State.IDLE
-    }
-
-    private fun onConnected(socket: BluetoothSocket) {
-        connectThread = null
-        connectedThread.getAndSet(null)?.cancel()
-        val t = ConnectedThread(socket)
-        connectedThread.set(t)
-        t.start()
-        _state.value = State.CONNECTED
     }
 
     private fun emitError(msg: String) { _errors.tryEmit(msg) }
@@ -225,8 +229,11 @@ class BluetoothConnectionManager(private val context: Context) {
             while (true) {
                 val socket = try { serverSocket?.accept() } catch (e: IOException) { break }
                 if (socket != null) {
-                    onConnected(socket)
-                    break
+                    val key = runCatching {
+                        @Suppress("MissingPermission") socket.remoteDevice?.address
+                    }.getOrNull()
+                    if (key != null) onConnected(socket, key)
+                    else runCatching { socket.close() }
                 }
             }
             runCatching { serverSocket?.close() }
@@ -241,24 +248,25 @@ class BluetoothConnectionManager(private val context: Context) {
         override fun run() {
             val s = socket ?: run {
                 emitError("No se pudo crear el socket Bluetooth")
-                _state.value = BluetoothConnectionManager.State.LISTENING
-                return
+                backToListening(); return
             }
             try {
                 s.connect()
             } catch (e: IOException) {
                 runCatching { s.close() }
                 emitError("Conexión Bluetooth fallida: ${e.message}")
-                _state.value = BluetoothConnectionManager.State.LISTENING
-                startServer()
-                return
+                backToListening(); return
             }
-            onConnected(s)
+            onConnected(s, device.address)
         }
-        fun cancel() { runCatching { socket?.close() } }
+        private fun backToListening() {
+            if (connections.isEmpty() && _state.value != State.DISCOVERING)
+                _state.value = State.LISTENING
+            startServer()
+        }
     }
 
-    private inner class ConnectedThread(socket: BluetoothSocket) : Thread() {
+    private inner class ConnectedThread(socket: BluetoothSocket, val key: String) : Thread() {
         private val inStream = DataInputStream(socket.inputStream)
         private val outStream = DataOutputStream(socket.outputStream)
         private val lock = Any()
@@ -268,7 +276,7 @@ class BluetoothConnectionManager(private val context: Context) {
             try {
                 while (alive) {
                     val msg = MessageFramer.read(inStream) ?: break
-                    _incoming.tryEmit(msg)
+                    _incoming.tryEmit(Incoming(key, msg))
                 }
             } catch (e: IOException) {
                 // desconexión
@@ -279,22 +287,18 @@ class BluetoothConnectionManager(private val context: Context) {
 
         fun write(msg: WireMessage): Boolean = synchronized(lock) {
             if (!alive) return false
-            try {
-                MessageFramer.write(outStream, msg); true
-            } catch (e: IOException) {
-                alive = false; false
-            }
+            try { MessageFramer.write(outStream, msg); true }
+            catch (e: IOException) { alive = false; false }
         }
 
         private fun handleDisconnect() {
             alive = false
-            connectedThread.compareAndSet(this, null)
+            connections.remove(key)
             runCatching { inStream.close() }
             runCatching { outStream.close() }
-            if (_state.value == BluetoothConnectionManager.State.CONNECTED) {
-                _state.value = BluetoothConnectionManager.State.LISTENING
-                startServer()
-            }
+            refreshConnected()
+            if (connections.isEmpty() && _state.value == State.CONNECTED) _state.value = State.LISTENING
+            startServer()
         }
 
         fun cancel() {

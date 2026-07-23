@@ -3,16 +3,10 @@ package com.nearlink.app.data.security
 import android.content.Context
 import com.nearlink.app.transport.ContactEntry
 import com.nearlink.app.transport.WireMessage
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Mensaje de aplicación ya descifrado que sube hacia la UI/repositorio. */
+/** Mensaje de aplicación ya descifrado. */
 data class AppMessage(
     val id: String,
     val senderFp: String,
@@ -20,51 +14,45 @@ data class AppMessage(
     val content: String,
     val timestamp: Long,
     val ttlSeconds: Int,
-    val fileName: String?
+    val fileName: String?,
+    val hops: Int
 )
+
+/** Resultado de procesar un mensaje entrante (el ViewModel decide qué hacer). */
+sealed class HandleResult {
+    /** Mensaje dirigido a MÍ y descifrado correctamente. */
+    data class ForMe(val app: AppMessage) : HandleResult()
+    /** Mensaje para OTRO nodo: hay que reenviarlo (un salto menos). */
+    data class Relay(val envelope: WireMessage.Envelope) : HandleResult()
+    /** Recibí identidad/directorio: conviene responder con mi directorio + outbox. */
+    object Directory : HandleResult()
+    /** Confirmación de entrega de un mensaje MÍO saliente. */
+    data class Ack(val msgId: String) : HandleResult()
+    /** Duplicado o inválido: ignorar. */
+    object Ignore : HandleResult()
+}
 
 /**
  * Núcleo de la malla NearLink: cifrado E2E a la identidad del destinatario +
  * almacenar-y-reenviar (store-and-forward) + gossip del directorio + deduplicación
- * + límite de saltos.
+ * + límite de saltos (16).
  *
  * Cada [WireMessage.Envelope] se cifra para [recipientFp] (la identidad del
  * destinatario). Los nodos intermedios solo lo reenvían: nunca pueden descifrarlo.
- * Cuando un nodo recibe un sobre que NO es para él, lo guarda en la bandeja de
- * salida ([outbox]) para reenviarlo a los siguientes pares con los que conecte,
- * reduciendo [hops] en cada salto.
  */
 class SecureMessenger(
     private val identity: IdentityManager,
     val contactStore: ContactStore,
-    private val context: Context,
+    context: Context,
     private val pairingPin: () -> String
 ) {
     private val meshPrefs = context.getSharedPreferences("nearlink_mesh", Context.MODE_PRIVATE)
-
-    /** Mensajes que YO recibí y descifré (para persistirlos y, opcionalmente, confirmar). */
-    private val _decrypted = MutableSharedFlow<AppMessage>(extraBufferCapacity = 64)
-    val decrypted: SharedFlow<AppMessage> = _decrypted.asSharedFlow()
-
-    /** IDs de MIS mensajes salientes cuya entrega se confirmó (Ack). */
-    private val _deliveryAcks = MutableSharedFlow<String>(extraBufferCapacity = 64)
-    val deliveryAcks: SharedFlow<String> = _deliveryAcks.asSharedFlow()
-
-    private val _peerFingerprint = MutableStateFlow<String?>(null)
-    val peerFingerprint: StateFlow<String?> = _peerFingerprint.asStateFlow()
-
-    @Volatile private var needFlush = false
 
     private val seen: MutableSet<String> = loadSeen()
     private val outbox: MutableList<WireMessage.Envelope> = loadOutbox()
 
     // ---------------- Saliente ----------------
 
-    /**
-     * Cifra [content] E2E para [recipientFp] y lo deja en la bandeja de salida.
-     * Devuelve el sobre para enviarlo de inmediato al par conectado, o null si no
-     * conocemos la llave pública del destinatario (todavía no llegó por gossip).
-     */
     fun sealToRecipient(
         recipientFp: String,
         kind: String,
@@ -93,11 +81,9 @@ class SecureMessenger(
         return envelope
     }
 
-    /** Construye la identidad propia para enviarla al conectar. */
     fun beginHandshake(): WireMessage.KeyExchange =
         WireMessage.KeyExchange(identity.publicKeyBytes, identity.fingerprint, Crypto.randomBytes(16))
 
-    /** Directorio de contactos (incluida la propia identidad) para hacer gossip. */
     fun buildContacts(): WireMessage.Contacts {
         val list = ArrayList(contactStore.entries())
         list.add(ContactEntry(identity.fingerprint, identity.publicKeyBytes))
@@ -108,74 +94,67 @@ class SecureMessenger(
 
     fun outboxSnapshot(): List<WireMessage.Envelope> = outbox.toList()
 
+    val myFingerprint: String get() = identity.fingerprint
+
     // ---------------- Entrante ----------------
 
-    /** Procesa un mensaje entrante. Devuelve true si se consumió. */
-    fun handleIncoming(msg: WireMessage): Boolean {
+    fun handleIncoming(msg: WireMessage): HandleResult {
         return when (msg) {
             is WireMessage.KeyExchange -> {
                 contactStore.put(msg.fingerprint, msg.publicKey)
-                _peerFingerprint.value = msg.fingerprint
-                needFlush = true
-                true
+                HandleResult.Directory
             }
             is WireMessage.Contacts -> {
                 contactStore.merge(msg.entries)
-                needFlush = true
-                true
+                HandleResult.Directory
             }
             is WireMessage.Envelope -> {
-                if (!seen.add(msg.msgId)) return true // ya visto: descartar (anti-bucle)
+                if (!seen.add(msg.msgId)) return HandleResult.Ignore
                 markSeen(msg.msgId)
-                if (msg.recipientFp == identity.fingerprint) {
-                    openForMe(msg) // emite por _decrypted; el ViewModel confirma con un Ack
-                } else if (msg.hops > 0) {
-                    addToOutbox(msg.copy(hops = msg.hops - 1)) // reenviar (store-and-forward)
+                when {
+                    msg.recipientFp == identity.fingerprint -> {
+                        val app = openForMe(msg) ?: return HandleResult.Ignore
+                        HandleResult.ForMe(app)
+                    }
+                    msg.hops > 0 -> {
+                        val forwarded = msg.copy(hops = msg.hops - 1)
+                        addToOutbox(forwarded)
+                        HandleResult.Relay(forwarded)
+                    }
+                    else -> HandleResult.Ignore // se agotaron los saltos
                 }
-                true
             }
             is WireMessage.Ack -> {
-                if (removeFromOutbox(msg.msgId)) _deliveryAcks.tryEmit(msg.msgId)
-                true
+                if (removeFromOutbox(msg.msgId)) HandleResult.Ack(msg.msgId) else HandleResult.Ignore
             }
         }
     }
 
-    /** ¿Recibimos KeyExchange/Contacts y conviene responder con nuestro directorio + outbox? */
-    fun consumeFlushRequest(): Boolean {
-        val f = needFlush
-        needFlush = false
-        return f
-    }
-
-    private fun openForMe(envelope: WireMessage.Envelope) {
-        val senderPub = contactStore.get(envelope.senderFp) ?: return
-        runCatching {
+    private fun openForMe(envelope: WireMessage.Envelope): AppMessage? {
+        val senderPub = contactStore.get(envelope.senderFp) ?: return null
+        return runCatching {
             val key = Crypto.e2eKey(identity.privateKey(), Crypto.decodePublicKey(senderPub), pairingPin())
             val plain = Crypto.decrypt(key, envelope.ciphertext, envelope.iv, envelope.msgId.toByteArray(Charsets.UTF_8))
             val json = JSONObject(String(plain, Charsets.UTF_8))
-            _decrypted.tryEmit(
-                AppMessage(
-                    id = envelope.msgId,
-                    senderFp = envelope.senderFp,
-                    kind = envelope.kind,
-                    content = json.optString("content"),
-                    timestamp = envelope.timestamp,
-                    ttlSeconds = envelope.ttlSeconds,
-                    fileName = envelope.fileName
-                )
+            AppMessage(
+                id = envelope.msgId,
+                senderFp = envelope.senderFp,
+                kind = envelope.kind,
+                content = json.optString("content"),
+                timestamp = envelope.timestamp,
+                ttlSeconds = envelope.ttlSeconds,
+                fileName = envelope.fileName,
+                hops = MAX_HOPS - envelope.hops // saltos recorridos aprox.
             )
-        }
-    }
-
-    fun reset() {
-        _peerFingerprint.value = null
-        needFlush = false
+        }.getOrNull()
     }
 
     // ---------------- Persistencia de outbox / seen ----------------
 
     private fun addToOutbox(envelope: WireMessage.Envelope) {
+        // Expira entradas viejas (>24h) para que la bandeja no crezca indefinidamente.
+        val cutoff = System.currentTimeMillis() - OUTBOX_TTL_MS
+        if (outbox.removeAll { it.timestamp < cutoff }) { /* follows below */ }
         if (outbox.none { it.msgId == envelope.msgId }) {
             outbox.add(envelope)
             if (outbox.size > MAX_OUTBOX) outbox.removeAt(0)
@@ -237,9 +216,10 @@ class SecureMessenger(
     }
 
     companion object {
-        const val MAX_HOPS = 8
-        const val MAX_OUTBOX = 200
-        const val MAX_SEEN = 2000
+        const val MAX_HOPS = 16
+        const val MAX_OUTBOX = 300
+        const val MAX_SEEN = 5000
+        const val OUTBOX_TTL_MS = 24L * 60 * 60 * 1000
         private const val KEY_OUTBOX = "outbox"
         private const val KEY_SEEN = "seen"
     }
