@@ -41,6 +41,10 @@ import java.util.concurrent.ConcurrentHashMap
  *    (para el flooding del relay sin eco).
  *
  * NO cifra nada: solo transporta. La criptografía va en SecureMessenger.
+ *
+ * Nota: dentro de los inner classes que heredan de [Thread], hay que cualificar el
+ * enum propio como [BluetoothConnectionManager.State] porque `State` por sí solo
+ * resuelve a `java.lang.Thread.State` (sombreado por herencia).
  */
 @SuppressLint("MissingPermission")
 class BluetoothConnectionManager(private val context: Context) {
@@ -260,8 +264,8 @@ class BluetoothConnectionManager(private val context: Context) {
             onConnected(s, device.address)
         }
         private fun backToListening() {
-            if (connections.isEmpty() && _state.value != State.DISCOVERING)
-                _state.value = State.LISTENING
+            if (connections.isEmpty() && _state.value != BluetoothConnectionManager.State.DISCOVERING)
+                _state.value = BluetoothConnectionManager.State.LISTENING
             startServer()
         }
     }
@@ -297,7 +301,8 @@ class BluetoothConnectionManager(private val context: Context) {
             runCatching { inStream.close() }
             runCatching { outStream.close() }
             refreshConnected()
-            if (connections.isEmpty() && _state.value == State.CONNECTED) _state.value = State.LISTENING
+            if (connections.isEmpty() && _state.value == BluetoothConnectionManager.State.CONNECTED)
+                _state.value = BluetoothConnectionManager.State.LISTENING
             startServer()
         }
 
