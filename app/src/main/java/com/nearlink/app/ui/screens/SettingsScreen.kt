@@ -1,13 +1,14 @@
-
 package com.nearlink.app.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nearlink.app.viewmodel.NearLinkViewModel
@@ -16,6 +17,7 @@ import com.nearlink.app.viewmodel.NearLinkViewModel
 fun SettingsScreen(viewModel: NearLinkViewModel) {
     val pin by viewModel.temporaryPin.collectAsState()
     val fingerprint by viewModel.identityFingerprint.collectAsState()
+    var pinInput by remember(pin) { mutableStateOf(pin) }
 
     Column(
         modifier = Modifier
@@ -29,7 +31,7 @@ fun SettingsScreen(viewModel: NearLinkViewModel) {
             color = MaterialTheme.colorScheme.primary
         )
         Text(
-            text = "Identidad Criptográfica, PAKE y Wi-Fi Direct P2P",
+            text = "Identidad Criptográfica, PIN de emparejamiento y malla",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -42,7 +44,7 @@ fun SettingsScreen(viewModel: NearLinkViewModel) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(text = fingerprint, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(text = "Clave pública asimétrica usada para autenticación de extremo a extremo sin servidores.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(text = "Clave pública asimétrica usada para cifrado de extremo a extremo. Los nodos intermedios de la malla nunca pueden leer tus mensajes.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
 
@@ -50,14 +52,37 @@ fun SettingsScreen(viewModel: NearLinkViewModel) {
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text(text = "PIN Temporal PAKE", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(text = "PIN de Emparejamiento", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "IMPORTANTE: debe ser EXACTAMENTE IGUAL en los dos dispositivos para poder descifrar. " +
+                        "Por defecto es 4821 (funciona de una entre dos instalaciones nuevas). Cámbialo solo si lo pones idéntico en ambos.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(text = "PIN actual: $pin", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = pinInput,
+                    onValueChange = { pinInput = it.filter { c -> c.isLetterOrDigit() }.take(32) },
+                    label = { Text("Nuevo PIN (igual en ambos)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth()
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = pin, style = MaterialTheme.typography.displayLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-                    Button(onClick = { viewModel.regeneratePin() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Renovar")
+                    Button(onClick = { if (pinInput.isNotBlank()) viewModel.updatePin(pinInput) }) {
+                        Icon(Icons.Default.Save, contentDescription = null)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Renovar")
+                        Text("Guardar PIN")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(onClick = { viewModel.regeneratePin(); pinInput = "" }) {
+                        Icon(Icons.Default.Casino, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Aleatorio")
                     }
                 }
             }
@@ -67,14 +92,14 @@ fun SettingsScreen(viewModel: NearLinkViewModel) {
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text(text = "Transferencia Híbrida Wi-Fi Direct", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(text = "Red en Malla (store-and-forward)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Speed, contentDescription = "Wi-Fi Direct", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Hub, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
-                        Text(text = "Aceleración de Archivos a 250Mbps", fontWeight = FontWeight.SemiBold)
-                        Text(text = "Negociación automática para fotos y videos grandes sin router ni internet.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Mensajes salto a salto cifrados E2E", fontWeight = FontWeight.SemiBold)
+                        Text("Cada nodo reenvía sobres opacos; llegan aunque el destinatario esté lejos.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
