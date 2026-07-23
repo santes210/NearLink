@@ -29,29 +29,23 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Transporte real por Bluetooth Classic (RFCOMM / SPP) con SOPORTE DE MÚLTIPLES
- * CONEXIONES SIMULTÁNEAS, para que un nodo actúe como repetidor (relay) entre
- * varios pares a la vez (clave para la malla multi-salto).
+ * Transporte por Bluetooth Classic (RFCOMM / SPP) INSEGURO, con SOPORTE DE MÚLTIPLES
+ * CONEXIONES SIMULTÁNEAS para que un nodo repita (relay) entre varios pares a la vez.
  *
- *  - Descubrimiento: primero dispositivos EMPAREJADOS y luego ACTION_FOUND.
- *  - AcceptThread en bucle: acepta cuantos clientes quieran conectarse.
- *  - connect(): conexión saliente a un par.
- *  - Cada conexión tiene su ConnectedThread de lectura/escritura enmarcada.
- *  - send() difunde a todos; sendToAllExcept() difunde a todos salvo el origen
- *    (para el flooding del relay sin eco).
+ * Usa listenUsingInsecureRfcommWithServiceRecord / createInsecureRfcommSocketToServiceRecord,
+ * que permiten CONECTAR SIN EMPAREJAMIENTO MANUAL. El descubrimiento de a quién conectarse
+ * lo hace BleMeshDiscovery (por BLE), de modo que la malla se arma sola.
  *
- * NO cifra nada: solo transporta. La criptografía va en SecureMessenger.
+ * No cifra: solo transporta. La criptografía va en SecureMessenger.
  *
- * Nota: dentro de los inner classes que heredan de [Thread], hay que cualificar el
- * enum propio como [BluetoothConnectionManager.State] porque `State` por sí solo
- * resuelve a `java.lang.Thread.State` (sombreado por herencia).
+ * Nota: en inner classes que heredan de Thread, cualificar State como
+ * BluetoothConnectionManager.State (sombreado por java.lang.Thread.State).
  */
 @SuppressLint("MissingPermission")
 class BluetoothConnectionManager(private val context: Context) {
 
     enum class State { IDLE, DISCOVERING, LISTENING, CONNECTING, CONNECTED }
 
-    /** Mensaje entrante con la conexión de origen (para evitar eco en el relay). */
     data class Incoming(val sourceKey: String, val message: WireMessage)
 
     companion object {
@@ -104,7 +98,6 @@ class BluetoothConnectionManager(private val context: Context) {
     private fun granted(perm: String): Boolean =
         ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
 
-    // ---------------- Descubrimiento ----------------
     private val foundReceiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -168,7 +161,6 @@ class BluetoothConnectionManager(private val context: Context) {
         receiverRegistered = false
     }
 
-    // ---------------- Servidor / Cliente ----------------
     fun startServer() {
         if (!hasConnectPermission()) return
         if (acceptThread?.isAlive == true) return
@@ -179,20 +171,18 @@ class BluetoothConnectionManager(private val context: Context) {
     fun connect(device: BluetoothDevice) {
         val a = adapter ?: return
         if (!hasConnectPermission()) { emitError("Falta permiso BLUETOOTH_CONNECT"); return }
-        if (connections.containsKey(device.address)) return // ya conectado
+        if (connections.containsKey(device.address)) return
         a.cancelDiscovery()
         _state.value = State.CONNECTING
         ConnectThread(device).start()
     }
 
-    /** Difunde a todas las conexiones activas. */
     fun send(msg: WireMessage): Boolean {
         var any = false
         for (t in connections.values) if (t.write(msg)) any = true
         return any
     }
 
-    /** Difunde a todas las conexiones excepto la de origen (flooding sin eco). */
     fun sendToAllExcept(sourceKey: String, msg: WireMessage) {
         for ((key, t) in connections) if (key != sourceKey) t.write(msg)
     }
@@ -226,7 +216,8 @@ class BluetoothConnectionManager(private val context: Context) {
         private var serverSocket: BluetoothServerSocket? = null
         init {
             serverSocket = try {
-                adapter?.listenUsingRfcommWithServiceRecord(SERVICE_NAME, SERVICE_UUID)
+                // Inseguro: acepta conexiones sin emparejamiento.
+                adapter?.listenUsingInsecureRfcommWithServiceRecord(SERVICE_NAME, SERVICE_UUID)
             } catch (e: IOException) { null }
         }
         override fun run() {
@@ -247,7 +238,8 @@ class BluetoothConnectionManager(private val context: Context) {
 
     private inner class ConnectThread(private val device: BluetoothDevice) : Thread() {
         private val socket: BluetoothSocket? = try {
-            device.createRfcommSocketToServiceRecord(SERVICE_UUID)
+            // Inseguro: conecta sin emparejamiento.
+            device.createInsecureRfcommSocketToServiceRecord(SERVICE_UUID)
         } catch (e: IOException) { null }
         override fun run() {
             val s = socket ?: run {

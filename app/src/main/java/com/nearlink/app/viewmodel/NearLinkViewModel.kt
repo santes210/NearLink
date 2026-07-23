@@ -7,6 +7,7 @@ import android.net.Uri
 import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nearlink.app.bluetooth.BleMeshDiscovery
 import com.nearlink.app.bluetooth.BluetoothConnectionManager
 import com.nearlink.app.data.audio.AudioRecorder
 import com.nearlink.app.data.local.NearLinkDatabase
@@ -48,6 +49,7 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
     private val contactStore = ContactStore(application)
     private val secureMessenger = SecureMessenger(identity, contactStore, application) { _temporaryPin.value }
     private val bluetooth = BluetoothConnectionManager(application)
+    private val bleDiscovery = BleMeshDiscovery(application)
     private val wifi = WifiDirectManager(application)
     private val audioRecorder = AudioRecorder(application)
 
@@ -80,7 +82,6 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
     private val _identityFingerprint = MutableStateFlow(identity.fingerprint)
     val identityFingerprint: StateFlow<String> = _identityFingerprint.asStateFlow()
 
-    /** Destinatario del chat actual (puede estar varios saltos lejos). */
     private val _peerFingerprint = MutableStateFlow<String?>(null)
     val peerFingerprint: StateFlow<String?> = _peerFingerprint.asStateFlow()
 
@@ -103,7 +104,9 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
             else application.startService(serviceIntent)
         }
         bluetooth.startServer()
+        bleDiscovery.start() // anuncia + escanea: la malla se descubre y conecta sola
         observeBluetooth()
+        observeBleDiscovery()
         handleIncoming()
         startTtlCleanup()
         refreshContacts()
@@ -126,7 +129,7 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             bluetooth.connectedPeers.collect { list ->
                 _connectedPeers.value = list
-                if (list.size > prevConnected) broadcastIntroduction() // nueva conexión: presentarse
+                if (list.size > prevConnected) broadcastIntroduction()
                 prevConnected = list.size
             }
         }
@@ -146,6 +149,15 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /** Dispositivos descubiertos por BLE: autoconectar (sin emparejar) por RFCOMM inseguro. */
+    private fun observeBleDiscovery() {
+        viewModelScope.launch {
+            bleDiscovery.discovered.collect { list ->
+                for (dev in list) bluetooth.connect(dev)
+            }
+        }
+    }
+
     private fun handleIncoming() {
         viewModelScope.launch {
             bluetooth.incoming.collect { inc ->
@@ -158,13 +170,12 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
                         bluetooth.send(secureMessenger.buildAck(r.app.id))
                     }
                     is HandleResult.Relay -> {
-                        // No es para mí: reenviar a TODOS los demás nodos conectados (relay en vivo)
                         bluetooth.sendToAllExcept(inc.sourceKey, r.envelope)
                     }
                     is HandleResult.Directory -> {
                         if (contactStore.all().size > before) {
                             refreshContacts()
-                            bluetooth.send(secureMessenger.buildContacts()) // propagar nuevo contacto
+                            bluetooth.send(secureMessenger.buildContacts())
                         } else {
                             refreshContacts()
                         }
@@ -201,14 +212,12 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
     // ---------------- Acciones de UI ----------------
     fun navigateTo(screen: Screen) { _currentScreen.value = screen }
 
-    /** Establece transporte (Bluetooth) con un nodo cercano. No abre chat. */
     fun connectPeer(peer: PeerDevice) {
         val device = toRawDevice(peer) ?: return
         bluetooth.connect(device)
-        navigateTo(Screen.HOME) // al conectar, su identidad aparecerá como contacto
+        navigateTo(Screen.HOME)
     }
 
-    /** Abre un chat con un contacto (destinatario por huella, puede estar lejos). */
     fun selectContact(fp: String) {
         _peerFingerprint.value = fp
         _selectedPeer.value = PeerDevice(
@@ -226,6 +235,7 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
 
     fun startScan() {
         wifi.start()
+        bleDiscovery.start()
         bluetooth.startDiscovery()
     }
 
@@ -257,7 +267,6 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
             if (bluetooth.send(envelope)) {
                 messageRepository.updateStatus(envelope.msgId, MessageStatus.SENT.name)
             }
-            // si no hay par conectado, queda en la bandeja (store-and-forward) y se envía al conectar
         }
     }
 
@@ -402,6 +411,7 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
 
     override fun onCleared() {
         super.onCleared()
+        bleDiscovery.stop()
         bluetooth.shutdown()
         wifi.stop()
     }
