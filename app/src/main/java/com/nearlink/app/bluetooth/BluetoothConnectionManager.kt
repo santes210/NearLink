@@ -245,7 +245,7 @@ class BluetoothConnectionManager(private val context: Context) {
         fun cancel() { runCatching { serverSocket?.close() } }
     }
 
-    private inner class ConnectThread(device: BluetoothDevice) : Thread() {
+    private inner class ConnectThread(private val device: BluetoothDevice) : Thread() {
         private val socket: BluetoothSocket? = try {
             device.createRfcommSocketToServiceRecord(SERVICE_UUID)
         } catch (e: IOException) { null }
