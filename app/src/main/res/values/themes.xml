@@ -1,3 +1,11 @@
 <resources>
-    <style name="Theme.NearLink" parent="android:Theme.Material.NoActionBar" />
+    <!-- Theme used for the launch window (splash) and as base for Compose.
+         Compose overrides colors via NearLinkTheme, but we keep a Material3 DayNight parent
+         for correct windowBackground, statusBar and edge-to-edge behavior. -->
+    <style name="Theme.NearLink" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">false</item>
+    </style>
 </resources>

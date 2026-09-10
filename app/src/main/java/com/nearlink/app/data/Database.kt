@@ -5,6 +5,13 @@ import android.content.Context
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * @deprecated Duplicado histórico. Usar [com.nearlink.app.data.local.NearLinkDatabase] como única fuente.
+ * Este archivo se mantiene solo para compatibilidad y será eliminado en la próxima versión.
+ * La tabla y DAO son idénticos; la única diferencia es el nombre de base de datos
+ * ("nearlink_database" vs "nearlink_enterprise.db").
+ */
+@Deprecated("Usar com.nearlink.app.data.local.NearLinkDatabase", ReplaceWith("com.nearlink.app.data.local.NearLinkDatabase"))
 @Entity(tableName = "messages")
 data class MessageEntity(
     @PrimaryKey val id: String,

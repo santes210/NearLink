@@ -5,6 +5,12 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import com.nearlink.app.model.PeerDevice
+
+/**
+ * @deprecated Usar [com.nearlink.app.data.bluetooth.BluetoothServiceManager] que trabaja con
+ * [com.nearlink.app.domain.model.PeerDevice] y expone ConnectionState + flujo Result.
+ * Este manager se conserva por compatibilidad con código legacy que aún importa com.nearlink.app.model.
+ */
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

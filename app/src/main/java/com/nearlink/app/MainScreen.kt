@@ -15,8 +15,19 @@ import com.nearlink.app.viewmodel.Screen
 @Composable
 fun MainScreen(viewModel: NearLinkViewModel) {
     val currentScreen by viewModel.currentScreen.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Mostrar errores del ViewModel como Snackbar
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearError()
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         bottomBar = {
             if (currentScreen != Screen.CHAT) {
                 NavigationBar {

@@ -122,12 +122,15 @@ class NearLinkViewModel(application: Application) : AndroidViewModel(application
 
             when (val res = messageRepository.sendMessage(message)) {
                 is Result.Success -> {
+                    // Simulación de ACK: SENT -> DELIVERED -> READ
+                    // En producción esto vendría del ACK de Bluetooth/Wi-Fi Direct
                     delay(1000)
                     messageRepository.updateStatus(msgId, MessageStatus.DELIVERED.name)
                     delay(1500)
                     messageRepository.updateStatus(msgId, MessageStatus.READ.name)
                 }
                 is Result.Error -> {
+                    messageRepository.updateStatus(msgId, MessageStatus.FAILED.name)
                     _errorMessage.value = res.message
                 }
                 Result.Loading -> {}

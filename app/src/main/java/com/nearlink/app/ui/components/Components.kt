@@ -16,9 +16,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nearlink.app.model.Message
-import com.nearlink.app.model.MessageStatus
-import com.nearlink.app.model.MessageType
+import com.nearlink.app.domain.model.Message
+import com.nearlink.app.domain.model.MessageStatus
+import com.nearlink.app.domain.model.MessageType
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.sin
 
 @Composable
@@ -132,7 +135,10 @@ fun ChatBubble(message: Message, isMe: Boolean) {
                         Icon(Icons.Default.Lock, contentDescription = "Cifrado", modifier = Modifier.size(10.dp), tint = textColor.copy(alpha = 0.7f))
                         Spacer(modifier = Modifier.width(2.dp))
                     }
-                    Text(text = "12:34", fontSize = 10.sp, color = textColor.copy(alpha = 0.7f))
+                    val timeText = remember(message.timestamp) {
+                        SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp))
+                    }
+                    Text(text = timeText, fontSize = 10.sp, color = textColor.copy(alpha = 0.7f))
                     if (isMe) {
                         Spacer(modifier = Modifier.width(4.dp))
                         val statusIcon = when (message.status) {
@@ -140,8 +146,14 @@ fun ChatBubble(message: Message, isMe: Boolean) {
                             MessageStatus.SENT -> Icons.Default.Check
                             MessageStatus.DELIVERED -> Icons.Default.DoneAll
                             MessageStatus.READ -> Icons.Default.DoneAll
+                            MessageStatus.FAILED -> Icons.Default.ErrorOutline
                         }
-                        Icon(statusIcon, contentDescription = "Estado", modifier = Modifier.size(12.dp), tint = if (message.status == MessageStatus.READ) MaterialTheme.colorScheme.primary else textColor.copy(alpha = 0.7f))
+                        val statusTint = when (message.status) {
+                            MessageStatus.READ -> MaterialTheme.colorScheme.primary
+                            MessageStatus.FAILED -> MaterialTheme.colorScheme.error
+                            else -> textColor.copy(alpha = 0.7f)
+                        }
+                        Icon(statusIcon, contentDescription = "Estado ${message.status.name}", modifier = Modifier.size(12.dp), tint = statusTint)
                     }
                 }
             }

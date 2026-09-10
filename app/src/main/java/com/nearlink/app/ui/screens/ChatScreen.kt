@@ -12,7 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.nearlink.app.model.MessageType
+import com.nearlink.app.domain.model.MessageType
 import com.nearlink.app.ui.components.ChatBubble
 import com.nearlink.app.ui.components.RssiIndicator
 import com.nearlink.app.viewmodel.NearLinkViewModel
@@ -113,7 +113,7 @@ fun ChatScreen(viewModel: NearLinkViewModel) {
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { viewModel.sendWifiDirectFile("video_expedicion_4k.mp4") }) {
+            IconButton(onClick = { viewModel.sendFile("video_expedicion_4k.mp4") }) {
                 Icon(Icons.Default.WifiTethering, contentDescription = "Wi-Fi Direct Archivo Pesado")
             }
 

@@ -1,3 +1,64 @@
 <resources>
     <string name="app_name">NearLink</string>
+    <!-- Navigation -->
+    <string name="nav_chats">Chats</string>
+    <string name="nav_radar">Radar</string>
+    <string name="nav_settings">Ajustes</string>
+
+    <!-- Home -->
+    <string name="home_title">NearLink P2P</string>
+    <string name="home_subtitle">Modo Mesh • X25519 • Cifrado Extremo</string>
+    <string name="home_beacon_active">Baliza BLE Silenciosa Activa</string>
+    <string name="home_beacon_desc">Transmitiendo presencia offline en segundo plano</string>
+    <string name="home_nodes_title">Nodos y Chats en Red Mesh</string>
+    <string name="home_mesh_link">Mesh Link</string>
+    <string name="home_empty_title">Sin nodos cercanos</string>
+    <string name="home_empty_desc">Pulsa Radar para descubrir dispositivos NearLink.</string>
+
+    <!-- Discovery -->
+    <string name="discovery_title">Radar Bluetooth P2P</string>
+    <string name="discovery_subtitle">Descubriendo dispositivos NearLink cercanos vía BLE / Classic</string>
+    <string name="discovery_scan">Escanear Dispositivos</string>
+    <string name="discovery_stop">Detener Radar</string>
+    <string name="discovery_found">Dispositivos Encontrados</string>
+    <string name="discovery_connect">Conectar</string>
+    <string name="discovery_pin">PIN Temporal: %1$s</string>
+
+    <!-- Chat -->
+    <string name="chat_back">Volver</string>
+    <string name="chat_hint_default">Mensaje cifrado…</string>
+    <string name="chat_hint_ttl">Mensaje TTL (%1$ds)…</string>
+    <string name="chat_recording">Grabando nota de voz con visualizador…</string>
+    <string name="chat_ttl_off">TTL: Desactivado</string>
+    <string name="chat_ttl_10">TTL: 10 segundos</string>
+    <string name="chat_ttl_30">TTL: 30 segundos</string>
+    <string name="chat_send">Enviar</string>
+    <string name="chat_sos">SOS</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Configuración NearLink</string>
+    <string name="settings_subtitle">Identidad Criptográfica, PAKE y Wi-Fi Direct P2P</string>
+    <string name="settings_fingerprint_title">Huella Digital de Identidad (X25519)</string>
+    <string name="settings_fingerprint_desc">Clave pública asimétrica usada para autenticación de extremo a extremo sin servidores.</string>
+    <string name="settings_pin_title">PIN Temporal PAKE</string>
+    <string name="settings_pin_renew">Renovar</string>
+    <string name="settings_wifi_title">Transferencia Híbrida Wi-Fi Direct</string>
+    <string name="settings_wifi_speed">Aceleración de Archivos a 250Mbps</string>
+    <string name="settings_wifi_desc">Negociación automática para fotos y videos grandes sin router ni internet.</string>
+
+    <!-- Components -->
+    <string name="rssi_dBm">%1$d dBm (%2$s)</string>
+    <string name="signal_excellent">Excelente</string>
+    <string name="signal_good">Bueno</string>
+    <string name="signal_weak">Débil</string>
+    <string name="sos_alert">¡ALERTA SOS EMERGENCIA!</string>
+
+    <!-- Service -->
+    <string name="service_title">NearLink P2P Activo</string>
+    <string name="service_text">Escuchando conexiones Bluetooth en segundo plano de forma segura.</string>
+    <string name="service_channel">NearLink P2P Background Service</string>
+
+    <!-- Errors -->
+    <string name="error_bluetooth_scan">Error en escaneo Bluetooth</string>
+    <string name="error_connect_failed">Fallo al conectar con %1$s</string>
 </resources>
