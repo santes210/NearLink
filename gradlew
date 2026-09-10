@@ -20,7 +20,7 @@ if [ -n "$DEBUG" ] ; then
     echo "$@"
 fi
 
-app_home=$(dirname "$(readlink -f "$0" 2>/dev/null || stat -f "$0" 2>/dev/null || echo "$0")")
+APP_HOME=$(dirname "$(readlink -f "$0" 2>/dev/null || stat -f "$0" 2>/dev/null || echo "$0")")
 
 APP_NAME="Gradle"
 APP_BASE_NAME=$(basename "$0")
@@ -50,7 +50,7 @@ if [ "$cygwin" = "false" -a "$darwin" = "false" -a "$nonstop" = "false" ] ; then
 fi
 
 # Determine Gradle home
-GRADLE_HOME=$app_home/gradle/wrapper
+GRADLE_HOME=$APP_HOME/gradle/wrapper
 
 # Execute Gradle
 exec "$JAVACMD"     -Dorg.gradle.appname="$APP_BASE_NAME"     -classpath "$APP_HOME/gradle/wrapper/gradle-wrapper.jar"     org.gradle.wrapper.GradleWrapperMain     "$@"
