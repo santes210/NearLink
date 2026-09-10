@@ -12,18 +12,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.nearlink.app.model.PeerDevice
+import com.nearlink.app.domain.model.ConnectionState
+import com.nearlink.app.domain.model.PeerDevice
 import com.nearlink.app.ui.components.RssiIndicator
 import com.nearlink.app.viewmodel.NearLinkViewModel
 
 @Composable
 fun DiscoveryScreen(viewModel: NearLinkViewModel) {
     var isScanning by remember { mutableStateOf(false) }
-    val discoveredList = listOf(
-        PeerDevice("1", "Pixel 8 Pro (NearLink)", "AA:BB:CC:11:22:33", -55, false, "4821"),
-        PeerDevice("2", "Galaxy S24 Ultra", "AA:BB:CC:44:55:66", -68, false, "9134"),
-        PeerDevice("3", "Xiaomi 14 Pro", "AA:BB:CC:77:88:99", -82, false, "3052")
-    )
+    // Fuente reactiva: ViewModel.peers es la fuente de verdad (vía BluetoothServiceManager).
+    // Mantenemos mock solo como fallback visual si aún no hay datos.
+    val viewModelPeers by viewModel.peers.collectAsState()
+    val mockFallback = remember {
+        listOf(
+            PeerDevice("1", "Pixel 8 Pro (NearLink)", "AA:BB:CC:11:22:33", -55, ConnectionState.DISCONNECTED, "4821", "A7F3:9C21:44E2"),
+            PeerDevice("2", "Galaxy S24 Ultra", "AA:BB:CC:44:55:66", -68, ConnectionState.DISCONNECTED, "9134", "B8E4:1D32:55F1"),
+            PeerDevice("3", "Xiaomi 14 Pro", "AA:BB:CC:77:88:99", -82, ConnectionState.DISCONNECTED, "3052", "C9F5:2E43:88AA")
+        )
+    }
+    val discoveredList = if (viewModelPeers.isNotEmpty()) viewModelPeers else mockFallback
 
     Column(
         modifier = Modifier
@@ -48,7 +55,7 @@ fun DiscoveryScreen(viewModel: NearLinkViewModel) {
             Button(
                 onClick = {
                     isScanning = !isScanning
-                    viewModel.startScan()
+                    viewModel.loadPeers()
                 },
                 contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
             ) {

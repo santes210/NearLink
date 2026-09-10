@@ -1,0 +1,15 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple N letter centered, white on transparent -->
+    <path android:fillColor="#FFFFFF"
+          android:pathData="M32,30 L32,78 L37,78 L37,42 L71,78 L76,78 L76,30 L71,30 L71,66 L37,30 Z"
+          android:strokeColor="#FFFFFF"
+          android:strokeWidth="2"/>
+    <!-- subtle link circles -->
+    <path android:fillColor="#FFFFFF"
+          android:alpha="0.9"
+          android:pathData="M54,20a6,6 0 1 0 0,12a6,6 0 0 0 0,-12zM54,76a6,6 0 1 0 0,12a6,6 0 0 0 0,-12z"/>
+</vector>

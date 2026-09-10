@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.nearlink.app.domain.model.ConnectionState
 import com.nearlink.app.ui.components.RssiIndicator
 import com.nearlink.app.viewmodel.NearLinkViewModel
 
@@ -78,6 +79,24 @@ fun HomeScreen(viewModel: NearLinkViewModel) {
 
         Spacer(modifier = Modifier.height(8.dp))
 
+        if (peers.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.SearchOff, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(48.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(text = "Sin nodos cercanos", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = "Pulsa Radar para descubrir dispositivos NearLink.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -112,7 +131,7 @@ fun HomeScreen(viewModel: NearLinkViewModel) {
                             RssiIndicator(rssi = peer.rssi)
                         }
 
-                        if (peer.isConnected) {
+                        if (peer.connectionState == ConnectionState.CONNECTED) {
                             Badge(containerColor = MaterialTheme.colorScheme.primary) {
                                 Text(text = "Mesh Link", modifier = Modifier.padding(4.dp))
                             }

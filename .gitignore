@@ -1,0 +1,42 @@
+# Gradle
+.gradle/
+build/
+app/build/
+*/build/
+gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.ipr
+*.iws
+local.properties
+*.jks
+*.keystore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kotlin / Java
+*.class
+*.log
+*.ctxt
+.mtj.tmp/
+hs_err_pid*
+replay_pid*
+
+# External storage
+/external/
+
+# Room schemas
+app/schemas/
+
+# Coverage
+coverage/
+
+# Node (if any)
+node_modules/
+
+# Keep mipmap sources but ignore generated
+# (we keep launcher icons tracked)
