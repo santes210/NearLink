@@ -7,11 +7,11 @@ import com.nearlink.app.core.CoroutineDispatchers
 import com.nearlink.app.core.Outcome
 import com.nearlink.app.domain.model.ConnectionState
 import com.nearlink.app.domain.model.FrameType
-import com.nearlink.app.domain.model.IncomingEnvelope
 import com.nearlink.app.domain.model.Peer
 import com.nearlink.app.domain.model.ScanState
 import com.nearlink.app.domain.model.TransportStatus
 import com.nearlink.app.domain.repository.IdentityRepository
+import com.nearlink.app.domain.repository.IncomingEnvelope
 import com.nearlink.app.domain.repository.PeerRepository
 import com.nearlink.app.domain.repository.SettingsRepository
 import com.nearlink.app.domain.repository.TransportRepository

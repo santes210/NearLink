@@ -12,8 +12,10 @@ import java.util.Locale
  *
  * java.time esta disponible de forma nativa desde API 26 (nuestro minSdk),
  * asi que no hace falta desugaring.
+ *
+ * Nota: la app usa inyeccion manual (AppContainer), asi que no hay anotaciones
+ * de Dagger/Hilt aqui; el contenedor mantiene una unica instancia.
  */
-@Singleton
 class TimeFormatter {
 
     private val timeFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)

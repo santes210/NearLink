@@ -4,11 +4,11 @@ import com.nearlink.app.core.CoroutineDispatchers
 import com.nearlink.app.data.crypto.MessageCipher
 import com.nearlink.app.data.repository.WireFormat
 import com.nearlink.app.domain.model.FrameType
-import com.nearlink.app.domain.model.IncomingEnvelope
 import com.nearlink.app.domain.model.Attachment
 import com.nearlink.app.domain.model.Message
 import com.nearlink.app.domain.model.MessageStatus
 import com.nearlink.app.domain.model.MessageType
+import com.nearlink.app.domain.repository.IncomingEnvelope
 import com.nearlink.app.domain.repository.MessageRepository
 import com.nearlink.app.domain.repository.PeerRepository
 import com.nearlink.app.domain.repository.TransportRepository
