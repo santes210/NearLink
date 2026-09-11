@@ -11,25 +11,33 @@ import com.nearlink.app.data.crypto.CryptoManager
 import com.nearlink.app.data.crypto.MessageCipher
 import com.nearlink.app.data.local.AttachmentStore
 import com.nearlink.app.data.local.db.NearLinkDatabase
+import com.nearlink.app.data.local.db.NearLinkGroupDatabase
 import com.nearlink.app.data.mesh.MeshInbox
+import com.nearlink.app.data.repository.ChannelRepositoryImpl
 import com.nearlink.app.data.repository.IdentityRepositoryImpl
 import com.nearlink.app.data.repository.MessageRepositoryImpl
 import com.nearlink.app.data.repository.PeerRepositoryImpl
 import com.nearlink.app.data.repository.SettingsRepositoryImpl
 import com.nearlink.app.data.transport.NearLinkTransport
+import com.nearlink.app.domain.repository.ChannelRepository
 import com.nearlink.app.domain.repository.IdentityRepository
 import com.nearlink.app.domain.repository.MessageRepository
 import com.nearlink.app.domain.repository.PeerRepository
 import com.nearlink.app.domain.repository.SettingsRepository
 import com.nearlink.app.domain.repository.TransportRepository
 import com.nearlink.app.domain.usecase.ConnectToPeerUseCase
+import com.nearlink.app.domain.usecase.JoinChannelUseCase
+import com.nearlink.app.domain.usecase.LeaveChannelUseCase
 import com.nearlink.app.domain.usecase.PurgeExpiredMessagesUseCase
 import com.nearlink.app.domain.usecase.RetryPendingMessagesUseCase
 import com.nearlink.app.domain.usecase.RotatePairingPinUseCase
 import com.nearlink.app.domain.usecase.SendAttachmentUseCase
+import com.nearlink.app.domain.usecase.SendGroupMessageUseCase
 import com.nearlink.app.domain.usecase.SendMessageUseCase
 import com.nearlink.app.service.NearLinkNotifications
 import com.nearlink.app.ui.screens.chat.ChatViewModel
+import com.nearlink.app.ui.screens.groups.GroupChatViewModel
+import com.nearlink.app.ui.screens.groups.GroupsViewModel
 import com.nearlink.app.ui.screens.home.HomeViewModel
 import com.nearlink.app.ui.screens.radar.RadarViewModel
 import com.nearlink.app.ui.screens.settings.SettingsViewModel
@@ -72,6 +80,12 @@ class AppContainer(private val context: Context) {
         PeerRepositoryImpl(database.peerDao(), dispatchers)
     }
 
+    val groupDatabase: NearLinkGroupDatabase by lazy { NearLinkGroupDatabase.get(context) }
+
+    val channelRepository: ChannelRepository by lazy {
+        ChannelRepositoryImpl(groupDatabase.channelDao(), crypto, identityRepository, dispatchers)
+    }
+
     val messageCipher: MessageCipher by lazy {
         MessageCipher(crypto, identityRepository, peerRepository)
     }
@@ -104,6 +118,8 @@ class AppContainer(private val context: Context) {
             messageRepository = messageRepository,
             peerRepository = peerRepository,
             cipher = messageCipher,
+            channelRepository = channelRepository,
+            identityRepository = identityRepository,
             dispatchers = dispatchers,
             scope = appScope,
             onIncomingMessage = { peerId, preview -> notifyIncoming(peerId, preview) },
@@ -135,6 +151,18 @@ class AppContainer(private val context: Context) {
 
     val rotatePairingPin: RotatePairingPinUseCase by lazy {
         RotatePairingPinUseCase(settingsRepository, dispatchers)
+    }
+
+    val joinChannel: JoinChannelUseCase by lazy {
+        JoinChannelUseCase(channelRepository, transport, dispatchers)
+    }
+
+    val sendGroupMessage: SendGroupMessageUseCase by lazy {
+        SendGroupMessageUseCase(channelRepository, transport, dispatchers)
+    }
+
+    val leaveChannel: LeaveChannelUseCase by lazy {
+        LeaveChannelUseCase(channelRepository, dispatchers)
     }
 
     /** Notificacion de mensaje entrante. */
@@ -199,6 +227,24 @@ class AppContainer(private val context: Context) {
             sendMessage = sendMessageUseCase,
             sendAttachment = sendAttachmentUseCase,
             connectToPeer = connectToPeer,
+            dispatchers = dispatchers,
+        )
+    }
+
+    val groupsViewModelFactory: ViewModelProvider.Factory get() = factory {
+        GroupsViewModel(
+            channelRepository = channelRepository,
+            joinChannel = joinChannel,
+            leaveChannel = leaveChannel,
+            dispatchers = dispatchers,
+        )
+    }
+
+    fun groupChatViewModelFactory(channelId: String): ViewModelProvider.Factory = factory {
+        GroupChatViewModel(
+            channelId = channelId,
+            channelRepository = channelRepository,
+            sendGroupMessage = sendGroupMessage,
             dispatchers = dispatchers,
         )
     }

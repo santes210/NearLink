@@ -80,6 +80,9 @@ class NearLinkForegroundService : Service() {
                 delay(MAINTENANCE_INTERVAL_MS)
                 runCatching { container.purgeExpiredMessages() }
                 runCatching { container.retryPendingMessages() }
+                // Curación de la malla: reenlaza con nodos conocidos que estén
+                // desconectados (necesario para que los grupos sigan llegando).
+                runCatching { container.transport.connectAllKnown() }
             }
         }
     }

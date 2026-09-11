@@ -2,8 +2,10 @@ package com.nearlink.app.domain.repository
 
 import com.nearlink.app.core.Outcome
 import com.nearlink.app.domain.model.Attachment
+import com.nearlink.app.domain.model.Channel
 import com.nearlink.app.domain.model.Conversation
 import com.nearlink.app.domain.model.FrameType
+import com.nearlink.app.domain.model.GroupMessage
 import com.nearlink.app.domain.model.Message
 import com.nearlink.app.domain.model.MessageStatus
 import com.nearlink.app.domain.model.NodeIdentity
@@ -108,6 +110,50 @@ interface IdentityRepository {
     suspend fun fingerprint(): String
 }
 
+/**
+ * Almacén de grupos/canales. La clave de cada canal se guarda cifrada en reposo
+ * y el código de acceso nunca se persiste.
+ */
+interface ChannelRepository {
+
+    fun observeChannels(): Flow<List<Channel>>
+
+    fun observeMessages(channelId: String): Flow<List<GroupMessage>>
+
+    /** Crea el canal si no existe o se reincorpora a él. */
+    suspend fun join(code: String, name: String): Outcome<Channel>
+
+    suspend fun leave(channelId: String)
+
+    suspend fun find(channelId: String): Channel?
+
+    /** Cifra y persiste un mensaje de grupo saliente; devuelve la trama a difundir. */
+    suspend fun enqueueGroupMessage(channelId: String, content: String): Outcome<ChannelOutgoingFrame>
+
+    /** Descifra una trama de grupo entrante. Null si no pertenecemos al canal. */
+    suspend fun decryptIncoming(payload: ByteArray): DecryptedGroupMessage?
+
+    /** Persiste un mensaje de grupo entrante ya descifrado. */
+    suspend fun persistIncomingGroup(decrypted: DecryptedGroupMessage, timestamp: Long, hops: Int, relayed: Boolean)
+
+    /** Registra/actualiza la presencia de un miembro del canal. */
+    suspend fun recordMember(channelId: String, senderId: String, senderName: String, seenAt: Long)
+}
+
+/** Mensaje de grupo saliente ya cifrado, con su trama lista para la malla. */
+data class ChannelOutgoingFrame(
+    val message: GroupMessage,
+    val payload: ByteArray,
+)
+
+/** Mensaje de grupo entrante ya descifrado. */
+data class DecryptedGroupMessage(
+    val channelId: String,
+    val senderId: String,
+    val senderName: String,
+    val content: String,
+)
+
 interface SettingsRepository {
 
     val settings: Flow<UserSettings>
@@ -139,7 +185,7 @@ interface TransportRepository {
 
     suspend fun stop()
 
-    suspend fun startScan()
+    suspend fun startScan(): Outcome<Unit>
 
     suspend fun stopScan()
 
@@ -153,6 +199,15 @@ interface TransportRepository {
         payload: ByteArray,
         requireAck: Boolean = true,
     ): Outcome<Unit>
+
+    /**
+     * Difunde una trama a todos los nodos enlazados (broadcast de malla). Los
+     * repetidores la reenviarán; se usa para los mensajes de grupo.
+     */
+    suspend fun broadcast(payload: ByteArray): Outcome<Unit>
+
+    /** Intenta enlazar con hasta [limit] nodos conocidos que estén desconectados. */
+    suspend fun connectAllKnown(limit: Int = 6): Int
 
     /** Reintentos de la cola de mensajes pendientes. */
     suspend fun flushPending()
@@ -173,11 +228,16 @@ data class OutgoingFrame(
     val endToEnd: Boolean,
 )
 
-/** Trama recibida por el transporte, ya reensamblada y descifrada. */
+/** Trama recibida por el transporte, ya reensamblada (aun sin descifrar). */
 data class IncomingEnvelope(
+    /** Dirección del nodo que nos la entregó (salto inmediato). */
     val senderId: String,
     val payload: ByteArray,
     val type: FrameType,
     val hops: Int,
     val receivedAt: Long = System.currentTimeMillis(),
+    /** Identidad estable del emisor original (nodeId); sobrevive a los saltos. */
+    val originId: String = "",
+    /** Id de la trama (UUID); permite descartar duplicados de la malla. */
+    val messageId: String = "",
 )

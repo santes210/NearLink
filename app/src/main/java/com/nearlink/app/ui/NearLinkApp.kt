@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +48,8 @@ import com.nearlink.app.di.LocalContainer
 import com.nearlink.app.domain.model.UserSettings
 import com.nearlink.app.permissions.NearLinkPermissions
 import com.nearlink.app.ui.screens.chat.ChatScreen
+import com.nearlink.app.ui.screens.groups.GroupChatScreen
+import com.nearlink.app.ui.screens.groups.GroupsScreen
 import com.nearlink.app.ui.screens.home.HomeScreen
 import com.nearlink.app.ui.screens.permissions.PermissionsScreen
 import com.nearlink.app.ui.screens.radar.RadarScreen
@@ -77,9 +80,14 @@ fun NearLinkApp(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) { results ->
-        val stillMissing = results.filter { !it.value }.keys.toList()
-        missingPermissions = stillMissing
-        permissionsGranted = stillMissing.isEmpty()
+        // Solo los permisos bloqueantes deciden si se puede continuar: los
+        // opcionales (notificaciones, Wi-Fi Direct) no bloquean la malla.
+        val deniedBlocking = results
+            .filter { !it.value }
+            .keys
+            .filter { it in NearLinkPermissions.blocking() }
+        permissionsGranted = deniedBlocking.isEmpty()
+        missingPermissions = deniedBlocking
         if (permissionsGranted) onPermissionsGranted()
     }
 
@@ -230,6 +238,35 @@ private fun AppNavHost(
             SettingsScreen(viewModel = viewModel)
         }
 
+        composable(com.nearlink.app.ui.navigation.Routes.GROUPS) {
+            val viewModel: com.nearlink.app.ui.screens.groups.GroupsViewModel =
+                viewModel(factory = container.groupsViewModelFactory)
+            GroupsScreen(
+                viewModel = viewModel,
+                onOpenGroup = { channelId ->
+                    navController.navigate(com.nearlink.app.ui.navigation.Routes.groupChat(channelId))
+                },
+            )
+        }
+
+        composable(
+            route = com.nearlink.app.ui.navigation.Routes.GROUP_CHAT_PATTERN,
+            arguments = listOf(
+                navArgument(com.nearlink.app.ui.navigation.Routes.GROUP_CHAT_ARG) {
+                    type = NavType.StringType
+                },
+            ),
+        ) { entry ->
+            val channelId = entry.arguments?.getString(com.nearlink.app.ui.navigation.Routes.GROUP_CHAT_ARG)
+            if (channelId == null) {
+                navController.popBackStack()
+                return@composable
+            }
+            val groupChatViewModel: com.nearlink.app.ui.screens.groups.GroupChatViewModel =
+                viewModel(factory = container.groupChatViewModelFactory(channelId))
+            GroupChatScreen(viewModel = groupChatViewModel, onBack = { navController.popBackStack() })
+        }
+
         composable(
             route = com.nearlink.app.ui.navigation.Routes.CHAT_PATTERN,
             arguments = listOf(
@@ -261,6 +298,7 @@ private fun AppNavigationBar(currentRoute: String?, onNavigate: (String) -> Unit
                     Icon(
                         imageVector = when (destination) {
                             TopLevelDestination.HOME -> Icons.Default.Forum
+                            TopLevelDestination.GROUPS -> Icons.Default.Groups
                             TopLevelDestination.RADAR -> Icons.Default.BluetoothSearching
                             TopLevelDestination.SETTINGS -> Icons.Default.Settings
                         },
@@ -287,6 +325,7 @@ private fun AppNavigationRail(currentRoute: String?, onNavigate: (String) -> Uni
                     Icon(
                         imageVector = when (destination) {
                             TopLevelDestination.HOME -> Icons.Default.Forum
+                            TopLevelDestination.GROUPS -> Icons.Default.Groups
                             TopLevelDestination.RADAR -> Icons.Default.BluetoothSearching
                             TopLevelDestination.SETTINGS -> Icons.Default.Settings
                         },
@@ -305,6 +344,7 @@ private enum class TopLevelDestination(
     val label: Int,
 ) {
     HOME(com.nearlink.app.ui.navigation.Routes.HOME, R.string.nav_home),
+    GROUPS(com.nearlink.app.ui.navigation.Routes.GROUPS, R.string.nav_groups),
     RADAR(com.nearlink.app.ui.navigation.Routes.RADAR, R.string.nav_radar),
     SETTINGS(com.nearlink.app.ui.navigation.Routes.SETTINGS, R.string.nav_settings),
 }

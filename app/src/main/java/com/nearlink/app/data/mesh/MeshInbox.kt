@@ -8,6 +8,8 @@ import com.nearlink.app.domain.model.Attachment
 import com.nearlink.app.domain.model.Message
 import com.nearlink.app.domain.model.MessageStatus
 import com.nearlink.app.domain.model.MessageType
+import com.nearlink.app.domain.repository.ChannelRepository
+import com.nearlink.app.domain.repository.IdentityRepository
 import com.nearlink.app.domain.repository.IncomingEnvelope
 import com.nearlink.app.domain.repository.MessageRepository
 import com.nearlink.app.domain.repository.PeerRepository
@@ -30,6 +32,8 @@ class MeshInbox(
     private val messageRepository: MessageRepository,
     private val peerRepository: PeerRepository,
     private val cipher: MessageCipher,
+    private val channelRepository: ChannelRepository,
+    private val identityRepository: IdentityRepository,
     private val dispatchers: CoroutineDispatchers,
     private val scope: CoroutineScope,
     private val onIncomingMessage: suspend (peerId: String, preview: String) -> Unit = { _, _ -> },
@@ -37,6 +41,9 @@ class MeshInbox(
 
     @Volatile
     private var job: Job? = null
+
+    /** Ids de mensajes de grupo ya vistos (evita duplicados en mallas con varias rutas). */
+    private val seenGroupMessages = LinkedHashSet<String>()
 
     fun start() {
         if (job?.isActive == true) return
@@ -59,8 +66,33 @@ class MeshInbox(
         when (envelope.type) {
             FrameType.MESSAGE, FrameType.SOS -> handleText(envelope)
             FrameType.FILE -> handleFile(envelope)
+            FrameType.GROUP -> handleGroup(envelope)
             FrameType.HELLO, FrameType.HELLO_ACK, FrameType.ACK -> Unit
         }
+    }
+
+    /**
+     * Mensaje de grupo: se descifra con la clave del canal (solo si pertenecemos
+     * a él) y se guarda. Los nodos que no conocen el canal lo ignoran, pero ya
+     * lo habrán reenviado a nivel de transporte si actúan como repetidores.
+     */
+    private suspend fun handleGroup(envelope: IncomingEnvelope) {
+        if (rememberGroupMessage(envelope.messageId)) return
+        val decrypted = channelRepository.decryptIncoming(envelope.payload) ?: return
+        // La malla puede devolvernos nuestra propia difusión: la descartamos.
+        if (decrypted.senderId == identityRepository.nodeId()) return
+        channelRepository.recordMember(
+            channelId = decrypted.channelId,
+            senderId = decrypted.senderId,
+            senderName = decrypted.senderName,
+            seenAt = envelope.receivedAt,
+        )
+        channelRepository.persistIncomingGroup(
+            decrypted = decrypted,
+            timestamp = envelope.receivedAt,
+            hops = envelope.hops,
+            relayed = envelope.hops > 0,
+        )
     }
 
     private suspend fun handleText(envelope: IncomingEnvelope) {
@@ -119,5 +151,26 @@ class MeshInbox(
         )
         withContext(dispatchers.io) { messageRepository.persistIncoming(message) }
         onIncomingMessage(envelope.senderId, content.take(120))
+    }
+
+    /**
+     * Marca un id de mensaje de grupo como visto. Devuelve true si ya estaba
+     * (duplicado) o si no trae id. La colección es acotada para no crecer.
+     */
+    private fun rememberGroupMessage(id: String): Boolean {
+        if (id.isBlank()) return true
+        synchronized(seenGroupMessages) {
+            if (!seenGroupMessages.add(id)) return true
+            while (seenGroupMessages.size > MAX_SEEN_GROUP_MESSAGES) {
+                val iterator = seenGroupMessages.iterator()
+                iterator.next()
+                iterator.remove()
+            }
+            return false
+        }
+    }
+
+    companion object {
+        private const val MAX_SEEN_GROUP_MESSAGES = 512
     }
 }

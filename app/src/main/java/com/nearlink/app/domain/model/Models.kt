@@ -57,6 +57,9 @@ enum class FrameType {
 
     /** Alerta de emergencia. */
     SOS,
+
+    /** Mensaje de grupo: viaja cifrado con la clave del canal y se difunde. */
+    GROUP,
 }
 
 /** Estado del radar de descubrimiento. */
@@ -178,6 +181,37 @@ data class UserSettings(
     /** PIN efimero para emparejar por proximidad. */
     val pairingPin: String = "",
     val pinExpiresAt: Long = 0L,
+)
+
+/**
+ * Grupo/canal de NearLink. Varios dispositivos forman un grupo compartiendo el
+ * mismo código: de él se deriva la identidad del canal y su clave maestra.
+ */
+data class Channel(
+    /** Identidad pública del canal (hex de SHA-256 del código, 16 bytes). */
+    val id: String,
+    val name: String,
+    val createdAt: Long,
+    val lastActivity: Long,
+    /** Nodos remotos distintos que han escrito en el canal. */
+    val memberCount: Int,
+)
+
+/**
+ * Mensaje de un grupo, ya descifrado, listo para la UI. Se cifra en tránsito y
+ * en reposo con la clave del canal (AES-256-GCM).
+ */
+data class GroupMessage(
+    val id: String,
+    val channelId: String,
+    /** Identidad estable del emisor (nodeId hexadecimal). */
+    val senderId: String,
+    val senderName: String,
+    val outgoing: Boolean,
+    val content: String,
+    val timestamp: Long,
+    val hops: Int,
+    val relayed: Boolean,
 )
 
 /** Estado global del transporte de la malla. */

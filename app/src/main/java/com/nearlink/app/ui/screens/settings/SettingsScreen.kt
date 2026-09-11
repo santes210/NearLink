@@ -15,10 +15,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,7 +38,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nearlink.app.R
@@ -57,7 +54,6 @@ fun SettingsScreen(
     val identity by viewModel.identity.collectAsStateWithLifecycle()
     var confirmWipe by remember { mutableStateOf(false) }
     var confirmRegenerate by remember { mutableStateOf(false) }
-    var pinVisible by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
 
     Scaffold(
@@ -126,44 +122,6 @@ fun SettingsScreen(
                         label = { Text(stringResource(R.string.settings_display_name)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-
-            item {
-                SectionCard(title = stringResource(R.string.settings_pin)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = if (settings.pairingPin.isBlank()) {
-                                stringResource(R.string.settings_pin_none)
-                            } else if (pinVisible) {
-                                settings.pairingPin
-                            } else {
-                                "••••••"
-                            },
-                            style = MaterialTheme.typography.displaySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { pinVisible = !pinVisible }) {
-                            Text(
-                                stringResource(
-                                    if (pinVisible) R.string.settings_pin_hide else R.string.settings_pin_show,
-                                ),
-                            )
-                        }
-                        FilledTonalButton(onClick = viewModel::rotatePin) {
-                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
-                            Spacer(Modifier.size(6.dp))
-                            Text(stringResource(R.string.settings_pin_rotate))
-                        }
-                    }
-                    Spacer(Modifier.size(6.dp))
-                    Text(
-                        text = stringResource(R.string.settings_pin_help),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -358,10 +316,4 @@ private fun SwitchRow(
     }
 }
 
-@Composable
-private fun PasswordPlaceholder() {
-    Text(text = "••••••", style = MaterialTheme.typography.displaySmall)
-}
 
-@Composable
-private fun PinTransformation(): PasswordVisualTransformation = PasswordVisualTransformation()

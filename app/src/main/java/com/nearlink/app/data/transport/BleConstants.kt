@@ -5,8 +5,18 @@ import java.util.UUID
 /** Identificadores del servicio NearLink sobre BLE. */
 object NearLinkBle {
 
-    /** Servicio propietario NearLink. */
-    val SERVICE_UUID: UUID = UUID.fromString("a1b2c3d4-0000-4000-8000-aabbccddeeff")
+    /**
+     * Servicio propietario NearLink.
+     *
+     * IMPORTANTE: se usa un UUID de 16 bits (en su forma base de 128 bits) a
+     * proposito. El anuncio BLE legado tiene un limite de 31 bytes, y si el
+     * servicio se anuncia como UUID de 128 bits aleatorios, el paquete de
+     * anuncio (lista de servicios + service data) suma 41 bytes y el sistema
+     * rechaza la baliza con ADVERTISE_FAILED_DATA_TOO_LARGE. Con el UUID corto
+     * la baliza ocupa ~13 bytes y cabe con holgura. Las caracteristicas de
+     * GATT siguen siendo internas y no viajan en el anuncio.
+     */
+    val SERVICE_UUID: UUID = UUID.fromString("0000feee-0000-1000-8000-00805f9b34fb")
 
     /** Caracteristica por la que viajan las tramas (escritura + notificacion). */
     val MESSAGE_CHARACTERISTIC: UUID = UUID.fromString("a1b2c3d4-0001-4000-8000-aabbccddeeff")
