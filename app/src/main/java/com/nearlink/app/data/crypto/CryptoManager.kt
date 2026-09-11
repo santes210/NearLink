@@ -190,6 +190,33 @@ class CryptoManager(private val filesDir: File) {
         return cipher.doFinal(box.ciphertext)
     }
 
+    /**
+     * AES-256-GCM con datos adicionales autenticados (AAD). El AAD se valida
+     * junto al ciphertext: si se altera, el descifrado falla. Se usa en los
+     * grupos para vincular cada mensaje a su canal, emisor y nombre.
+     */
+    fun encryptAad(plaintext: ByteArray, key: ByteArray, aad: ByteArray?): SealedBox {
+        val iv = randomBytes(IV_BYTES)
+        val cipher = Cipher.getInstance(AES_TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, AES_ALGORITHM), GCMParameterSpec(GCM_TAG_BITS, iv))
+        if (aad != null) cipher.updateAAD(aad)
+        return SealedBox(ciphertext = cipher.doFinal(plaintext), iv = iv)
+    }
+
+    fun decryptAad(box: SealedBox, key: ByteArray, aad: ByteArray?): ByteArray {
+        val cipher = Cipher.getInstance(AES_TRANSFORMATION)
+        cipher.init(
+            Cipher.DECRYPT_MODE,
+            SecretKeySpec(key, AES_ALGORITHM),
+            GCMParameterSpec(GCM_TAG_BITS, box.iv),
+        )
+        if (aad != null) cipher.updateAAD(aad)
+        return cipher.doFinal(box.ciphertext)
+    }
+
+    /** Comparación en tiempo constante (evita timing attacks sobre secretos). */
+    fun constantTimeEquals(a: ByteArray, b: ByteArray): Boolean = MessageDigest.isEqual(a, b)
+
     fun encryptString(value: String, key: ByteArray): SealedBox = encrypt(value.toByteArray(Charsets.UTF_8), key)
 
     fun decryptString(box: SealedBox, key: ByteArray): String = String(decrypt(box, key), Charsets.UTF_8)

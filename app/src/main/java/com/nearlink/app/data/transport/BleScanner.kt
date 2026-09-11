@@ -8,6 +8,8 @@ import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.location.LocationManager
+import android.os.Build
 import android.os.ParcelUuid
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +32,7 @@ data class DiscoveredNode(
 @SuppressLint("MissingPermission")
 class BleScanner(context: Context) {
 
+    private val appContext = context.applicationContext
     private val adapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
     private val scanner: BluetoothLeScanner? = adapter?.bluetoothLeScanner
     private var callback: ScanCallback? = null
@@ -49,6 +52,12 @@ class BleScanner(context: Context) {
             _lastError.value = "El dispositivo no soporta escaneo BLE"
             return false
         }
+        // Android 6..11 (API < 31) exigen que la localizacion este ACTIVA
+        // ademas del permiso, o el escaneo devuelve silenciosamente nada.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && !isLocationEnabled()) {
+            _lastError.value = "Activa la ubicacion del sistema para escanear"
+            return false
+        }
         stop()
 
         val settings = ScanSettings.Builder()
@@ -66,7 +75,7 @@ class BleScanner(context: Context) {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val data = result.scanRecord?.serviceData?.get(ParcelUuid(NearLinkBle.SERVICE_UUID))
                 val relay = data?.lastOrNull() == 1.toByte()
-                val nodeId = data?.take(4)?.joinToString("") { "%02X".format(it) }.orEmpty()
+                val nodeId = data?.take(4)?.joinToString("") { "%02X".format(it.toInt() and 0xFF) }.orEmpty()
                 onResult(
                     DiscoveredNode(
                         address = result.device.address,
@@ -87,6 +96,8 @@ class BleScanner(context: Context) {
                 _lastError.value = when (errorCode) {
                     SCAN_FAILED_ALREADY_STARTED -> "El escaneo ya estaba iniciado"
                     SCAN_FAILED_FEATURE_UNSUPPORTED -> "Escaneo no soportado"
+                    SCAN_FAILED_APPLICATION_REGISTRATION_FAILED ->
+                        "Sin permisos o sin ubicacion activa (escaneo BLE)"
                     SCAN_FAILED_INTERNAL_ERROR -> "Error interno de Bluetooth"
                     else -> "Escaneo fallido ($errorCode)"
                 }
@@ -103,5 +114,16 @@ class BleScanner(context: Context) {
         callback?.let { runCatching { scanner?.stopScan(it) } }
         callback = null
         _isScanning.value = false
+    }
+
+    /** True si la localizacion del sistema esta activa (solo relevante < API 31). */
+    private fun isLocationEnabled(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val manager = appContext.getSystemService(LocationManager::class.java)
+            return manager?.isLocationEnabled == true
+        }
+        // API 26..27: no existe isLocationEnabled; se asume activa y el fallo
+        // de escaneo se reportaria por onScanFailed.
+        return true
     }
 }

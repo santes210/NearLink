@@ -3,6 +3,7 @@
     <string name="app_name">NearLink</string>
 
     <string name="nav_home">Chats</string>
+    <string name="nav_groups">Groups</string>
     <string name="nav_radar">Radar</string>
     <string name="nav_settings">Settings</string>
 
@@ -73,6 +74,24 @@
     <string name="radar_bluetooth_off_title">Bluetooth disabled</string>
     <string name="radar_bluetooth_off_subtitle">NearLink needs Bluetooth to announce and discover nodes without internet.</string>
 
+    <string name="groups_title">Groups</string>
+    <string name="groups_new">New group</string>
+    <string name="groups_empty_title">No groups yet</string>
+    <string name="groups_empty_subtitle">Create a group with a code and share it with the people you want to gather: everyone who types the same code can message each other encrypted.</string>
+    <string name="groups_help">Everyone who types the same code joins the same encrypted group. Messages are broadcast over the mesh and propagated by relays.</string>
+    <string name="groups_members">%1$d nodes</string>
+    <string name="groups_encrypted">AES-256-GCM encrypted</string>
+    <string name="groups_leave">Leave</string>
+    <string name="groups_join_title">Create or join a group</string>
+    <string name="groups_join_help">Type the same code as your contacts. Use a long code (12+ characters) for maximum security.</string>
+    <string name="groups_code">Group code</string>
+    <string name="groups_name">Name (optional)</string>
+    <string name="groups_join">Join</string>
+    <string name="group_chat_placeholder">Encrypted group message…</string>
+    <string name="group_chat_encrypted">Group encryption · AES-256-GCM</string>
+    <string name="group_chat_empty_title">No messages</string>
+    <string name="group_chat_empty_subtitle">Type a message: it is encrypted with the group key and broadcast over the mesh.</string>
+
     <string name="settings_title">Settings</string>
     <string name="settings_subtitle">Identity, mesh and privacy</string>
     <string name="settings_identity">Node identity</string>
@@ -80,12 +99,6 @@
     <string name="settings_loading">Generating identity…</string>
     <string name="settings_copy">Copy</string>
     <string name="settings_display_name">Visible name</string>
-    <string name="settings_pin">Pairing PIN</string>
-    <string name="settings_pin_help">It rotates on demand and expires after 5 minutes. Use it to confirm you are pairing with the right node.</string>
-    <string name="settings_pin_none">No active PIN</string>
-    <string name="settings_pin_show">Show</string>
-    <string name="settings_pin_hide">Hide</string>
-    <string name="settings_pin_rotate">Rotate</string>
     <string name="settings_mesh">Mesh</string>
     <string name="settings_relay">Act as a relay</string>
     <string name="settings_relay_help">Forwards other nodes\' messages to extend mesh coverage.</string>

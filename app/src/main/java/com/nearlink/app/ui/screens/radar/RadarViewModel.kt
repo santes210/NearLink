@@ -45,7 +45,8 @@ class RadarViewModel(
             if (scanState.value == ScanState.SCANNING) {
                 transport.stopScan()
             } else {
-                transport.startScan()
+                val result = transport.startScan()
+                _message.value = (result as? Outcome.Failure)?.message
             }
         }
     }

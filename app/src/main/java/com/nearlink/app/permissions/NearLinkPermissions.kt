@@ -16,16 +16,11 @@ import androidx.core.content.ContextCompat
  */
 object NearLinkPermissions {
 
-    /** Permisos imprescindibles para que la malla funcione. */
-    fun required(): List<String> = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> listOf(
-            Manifest.permission.BLUETOOTH_SCAN,
-            Manifest.permission.BLUETOOTH_CONNECT,
-            Manifest.permission.BLUETOOTH_ADVERTISE,
-            Manifest.permission.POST_NOTIFICATIONS,
-            Manifest.permission.NEARBY_WIFI_DEVICES,
-        )
-
+    /**
+     * Permisos imprescindibles para que la malla funcione. Si falta uno de
+     * estos, la app no puede descubrir ni enlazar nodos.
+     */
+    fun blocking(): List<String> = when {
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> listOf(
             Manifest.permission.BLUETOOTH_SCAN,
             Manifest.permission.BLUETOOTH_CONNECT,
@@ -34,6 +29,22 @@ object NearLinkPermissions {
 
         else -> listOf(Manifest.permission.ACCESS_FINE_LOCATION)
     }
+
+    /**
+     * Permisos opcionales: mejoran la experiencia (notificaciones, Wi-Fi
+     * Direct) pero NO bloquean el radar ni la malla si se rechazan.
+     */
+    fun optional(): List<String> = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> listOf(
+            Manifest.permission.POST_NOTIFICATIONS,
+            Manifest.permission.NEARBY_WIFI_DEVICES,
+        )
+
+        else -> emptyList()
+    }
+
+    /** Todo lo que se pide en la puerta de permisos (bloqueante + opcional). */
+    fun required(): List<String> = blocking() + optional()
 
     /** Permiso para grabar notas de voz (se pide solo al pulsar el micro). */
     fun audio(): String = Manifest.permission.RECORD_AUDIO
@@ -52,10 +63,12 @@ object NearLinkPermissions {
     fun isGranted(context: Context, permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
-    fun missing(context: Context, permissions: List<String> = required()): List<String> =
+    /** Solo los permisos bloqueantes que faltan (los opcionales se ignoran). */
+    fun missing(context: Context, permissions: List<String> = blocking()): List<String> =
         permissions.filter { !isGranted(context, it) }
 
-    fun hasAll(context: Context, permissions: List<String> = required()): Boolean =
+    /** True si la malla puede funcionar (permisos bloqueantes concedidos). */
+    fun hasAll(context: Context, permissions: List<String> = blocking()): Boolean =
         missing(context, permissions).isEmpty()
 
     fun hasBluetooth(context: Context): Boolean {

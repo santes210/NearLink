@@ -35,6 +35,7 @@ object Packet {
     const val TYPE_ACK = 4
     const val TYPE_FILE = 5
     const val TYPE_SOS = 6
+    const val TYPE_GROUP = 7
 
     // Flags
     const val FLAG_REQUIRE_ACK = 0x01

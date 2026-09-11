@@ -4,6 +4,7 @@
 
     <!-- Navegacion -->
     <string name="nav_home">Chats</string>
+    <string name="nav_groups">Grupos</string>
     <string name="nav_radar">Radar</string>
     <string name="nav_settings">Ajustes</string>
 
@@ -78,6 +79,25 @@
     <string name="radar_bluetooth_off_title">Bluetooth desactivado</string>
     <string name="radar_bluetooth_off_subtitle">NearLink necesita Bluetooth para anunciarse y descubrir nodos sin internet.</string>
 
+    <!-- Grupos -->
+    <string name="groups_title">Grupos</string>
+    <string name="groups_new">Nuevo grupo</string>
+    <string name="groups_empty_title">Todavía no hay grupos</string>
+    <string name="groups_empty_subtitle">Crea un grupo con un código y compártelo con quien quieras reunir: todos los que escriban el mismo código podrán mensajearse cifrado.</string>
+    <string name="groups_help">Todos los que escriban el mismo código entran al mismo grupo cifrado. Los mensajes se difunden por la malla y los repetidores los propagan.</string>
+    <string name="groups_members">%1$d nodos</string>
+    <string name="groups_encrypted">Cifrado AES-256-GCM</string>
+    <string name="groups_leave">Salir</string>
+    <string name="groups_join_title">Crear o unirse a un grupo</string>
+    <string name="groups_join_help">Escribe el mismo código que tus contactos. Usa un código largo (12+ caracteres) para máxima seguridad.</string>
+    <string name="groups_code">Código del grupo</string>
+    <string name="groups_name">Nombre (opcional)</string>
+    <string name="groups_join">Entrar</string>
+    <string name="group_chat_placeholder">Mensaje de grupo cifrado…</string>
+    <string name="group_chat_encrypted">Cifrado de grupo · AES-256-GCM</string>
+    <string name="group_chat_empty_title">Sin mensajes</string>
+    <string name="group_chat_empty_subtitle">Escribe un mensaje: se cifra con la clave del grupo y se difunde por la malla.</string>
+
     <!-- Ajustes -->
     <string name="settings_title">Ajustes</string>
     <string name="settings_subtitle">Identidad, malla y privacidad</string>
@@ -86,12 +106,6 @@
     <string name="settings_loading">Generando identidad…</string>
     <string name="settings_copy">Copiar</string>
     <string name="settings_display_name">Nombre visible</string>
-    <string name="settings_pin">PIN de emparejamiento</string>
-    <string name="settings_pin_help">Se renueva solo y caduca a los 5 minutos. Úsalo para confirmar que estás emparejando con el nodo correcto.</string>
-    <string name="settings_pin_none">Sin PIN activo</string>
-    <string name="settings_pin_show">Mostrar</string>
-    <string name="settings_pin_hide">Ocultar</string>
-    <string name="settings_pin_rotate">Renovar</string>
     <string name="settings_mesh">Malla</string>
     <string name="settings_relay">Actuar como repetidor</string>
     <string name="settings_relay_help">Reenvía mensajes de otros nodos para ampliar el alcance de la malla.</string>
