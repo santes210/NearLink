@@ -34,7 +34,6 @@ import com.nearlink.app.domain.usecase.JoinChannelUseCase
 import com.nearlink.app.domain.usecase.LeaveChannelUseCase
 import com.nearlink.app.domain.usecase.PurgeExpiredMessagesUseCase
 import com.nearlink.app.domain.usecase.RetryPendingMessagesUseCase
-import com.nearlink.app.domain.usecase.RotatePairingPinUseCase
 import com.nearlink.app.domain.usecase.SendAttachmentUseCase
 import com.nearlink.app.domain.usecase.SendGroupMessageUseCase
 import com.nearlink.app.domain.usecase.SendMessageUseCase
@@ -99,7 +98,7 @@ class AppContainer(private val context: Context) {
     val attachmentStore: AttachmentStore by lazy { AttachmentStore(context.filesDir, crypto) }
 
     val settingsRepository: SettingsRepository by lazy {
-        SettingsRepositoryImpl(database.settingsDao(), crypto, dispatchers)
+        SettingsRepositoryImpl(database.settingsDao(), dispatchers)
     }
 
     val identityRepository: IdentityRepository by lazy {
@@ -176,10 +175,6 @@ class AppContainer(private val context: Context) {
 
     val connectToPeer: ConnectToPeerUseCase by lazy {
         ConnectToPeerUseCase(transport, dispatchers)
-    }
-
-    val rotatePairingPin: RotatePairingPinUseCase by lazy {
-        RotatePairingPinUseCase(settingsRepository, dispatchers)
     }
 
     val joinChannel: JoinChannelUseCase by lazy {
@@ -261,7 +256,6 @@ class AppContainer(private val context: Context) {
             identityRepository = identityRepository,
             messageRepository = messageRepository,
             peerRepository = peerRepository,
-            rotatePairingPin = rotatePairingPin,
             dispatchers = dispatchers,
         )
     }

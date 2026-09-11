@@ -11,7 +11,6 @@ import com.nearlink.app.domain.repository.IdentityRepository
 import com.nearlink.app.domain.repository.MessageRepository
 import com.nearlink.app.domain.repository.PeerRepository
 import com.nearlink.app.domain.repository.SettingsRepository
-import com.nearlink.app.domain.usecase.RotatePairingPinUseCase
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -22,7 +21,6 @@ class SettingsViewModel(
     private val identityRepository: IdentityRepository,
     private val messageRepository: MessageRepository,
     private val peerRepository: PeerRepository,
-    private val rotatePairingPin: RotatePairingPinUseCase,
     private val dispatchers: CoroutineDispatchers,
 ) : ViewModel() {
 
@@ -58,10 +56,6 @@ class SettingsViewModel(
     fun setDefaultTtl(seconds: Int) = update { it.copy(defaultTtlSeconds = seconds) }
 
     fun setWifiThreshold(mb: Int) = update { it.copy(wifiDirectThresholdMb = mb) }
-
-    fun rotatePin() {
-        viewModelScope.launch(dispatchers.io) { rotatePairingPin() }
-    }
 
     /** Rota la identidad del nodo (nuevas claves P-256). */
     fun regenerateIdentity() {

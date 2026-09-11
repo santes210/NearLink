@@ -7,7 +7,6 @@ import com.nearlink.app.domain.model.Message
 import com.nearlink.app.domain.model.MessageStatus
 import com.nearlink.app.domain.model.MessageType
 import com.nearlink.app.domain.repository.MessageRepository
-import com.nearlink.app.domain.repository.SettingsRepository
 import com.nearlink.app.domain.repository.TransportRepository
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -159,11 +158,3 @@ class ConnectToPeerUseCase(
         withContext(dispatchers.io) { transport.connect(peerId) }
 }
 
-/** Renueva el PIN de emparejamiento. */
-class RotatePairingPinUseCase(
-    private val settingsRepository: SettingsRepository,
-    private val dispatchers: CoroutineDispatchers,
-) {
-    suspend operator fun invoke(): String =
-        withContext(dispatchers.io) { settingsRepository.rotatePairingPin() }
-}

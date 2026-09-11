@@ -80,18 +80,17 @@ class IdentityRepositoryImpl(
             }
         }
 
-    override suspend fun derivePairingKey(pin: String, salt: ByteArray): ByteArray =
-        withContext(dispatchers.default) { crypto.derivePinKey(pin, salt) }
-
     override suspend fun fingerprint(): String =
         withContext(dispatchers.io) { crypto.fingerprint() }
 
     override suspend fun publicKeyBytes(): ByteArray =
         withContext(dispatchers.io) { crypto.publicKeyBytes() }
 
-    override suspend fun nodeId(): String =
+    override suspend fun nodeId(): String = nodeIdOf(publicKeyBytes())
+
+    override suspend fun nodeIdOf(publicKey: ByteArray): String =
         withContext(dispatchers.default) {
-            crypto.sha256(crypto.publicKeyBytes()).take(6).joinToString(":") { "%02X".format(it) }
+            crypto.sha256(publicKey).take(6).joinToString(":") { "%02X".format(it) }
         }
 
     override suspend fun advertiseId(): ByteArray =
@@ -102,8 +101,4 @@ class IdentityRepositoryImpl(
     override suspend fun fingerprintOf(publicKey: ByteArray): String =
         withContext(dispatchers.default) { crypto.fingerprint(publicKey) }
 
-    /** PIN aleatorio de 6 digitos. */
-    fun generatePin(): String = crypto.randomPin(6)
-
-    fun randomSalt(): ByteArray = crypto.randomBytes(16)
 }

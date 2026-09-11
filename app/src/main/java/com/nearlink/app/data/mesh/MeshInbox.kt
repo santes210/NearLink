@@ -65,8 +65,21 @@ class MeshInbox(
         job = null
     }
 
+    /**
+     * Conversacion a la que pertenece la trama: el emisor ORIGINAL, no el
+     * repetidor que nos la entrego.
+     *
+     * Antes se usaba siempre `senderId` (el salto inmediato), asi que un
+     * mensaje A -> C -> B se intentaba descifrar con la clave de C, fallaba y
+     * se descartaba en silencio. Los mensajes 1:1 solo funcionaban en enlace
+     * directo. Si el transporte no pudo resolver el origen (no hubo handshake
+     * con el), se usa el salto inmediato como respaldo.
+     */
+    private val IncomingEnvelope.origin: String
+        get() = originAddress.ifBlank { senderId }
+
     private suspend fun handle(envelope: IncomingEnvelope) {
-        val peer = peerRepository.find(envelope.senderId)
+        val peer = peerRepository.find(envelope.origin)
         if (peer?.blocked == true) return
 
         when (envelope.type) {
@@ -103,7 +116,7 @@ class MeshInbox(
 
     private suspend fun handleText(envelope: IncomingEnvelope) {
         val box = WireFormat.unseal(envelope.payload) ?: return
-        val bytes = cipher.decrypt(envelope.senderId, box) ?: return
+        val bytes = cipher.decrypt(envelope.origin, box) ?: return
         val text = String(bytes, Charsets.UTF_8)
         storeAndNotify(
             envelope = envelope,
@@ -115,11 +128,11 @@ class MeshInbox(
 
     private suspend fun handleFile(envelope: IncomingEnvelope) {
         val frame = WireFormat.parseFileFrame(envelope.payload) ?: return
-        val bytes = cipher.decrypt(envelope.senderId, frame.box) ?: return
+        val bytes = cipher.decrypt(envelope.origin, frame.box) ?: return
         val isAudio = frame.mimeType.startsWith("audio/")
         val messageId = UUID.randomUUID().toString()
         val attachment = messageRepository.storeAttachment(
-            peerId = envelope.senderId,
+            peerId = envelope.origin,
             messageId = messageId,
             bytes = bytes,
             name = frame.name,
@@ -145,7 +158,7 @@ class MeshInbox(
         val now = System.currentTimeMillis()
         val message = Message(
             id = messageId,
-            peerId = envelope.senderId,
+            peerId = envelope.origin,
             outgoing = false,
             content = content,
             timestamp = envelope.receivedAt.takeIf { it <= now } ?: now,
@@ -156,7 +169,7 @@ class MeshInbox(
             relayed = envelope.hops > 0,
         )
         withContext(dispatchers.io) { messageRepository.persistIncoming(message) }
-        onIncomingMessage(envelope.senderId, content.take(120))
+        onIncomingMessage(envelope.origin, content.take(120))
     }
 
     /**

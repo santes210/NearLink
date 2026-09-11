@@ -104,8 +104,9 @@ Además se notificaba siempre, incluso con el chat abierto delante, con un canal
 
 ## Causa raíz 4 — Los mensajes se perdían en silencio
 
-- `_incoming = MutableSharedFlow(extraBufferCapacity = 64)` con `tryEmit`: si el buzón iba lento,
-  la política por defecto (`DROP_OLDEST`) **descartaba tramas sin avisar**.
+- `_incoming = MutableSharedFlow(extraBufferCapacity = 64)` con `tryEmit`: la política por
+  defecto de `MutableSharedFlow` ya es `SUSPEND`, así que con el búfer lleno `tryEmit` devolvía
+  `false` — y como nadie miraba el valor devuelto, **la trama se descartaba sin avisar**.
 - `MeshInbox.start()` se llamaba **después** de `transport.start()`, dejando una ventana en la que
   el transporte ya emitía y todavía no había colector.
 - `MeshInbox` envolvía todo en `runCatching { handle(envelope) }` sin registrar nada: un fallo de
@@ -133,22 +134,66 @@ Además se notificaba siempre, incluso con el chat abierto delante, con un canal
 
 ---
 
-## Pendiente / limitación conocida (no corregida)
+## Segunda tanda: enrutado por origen, grupos y el PIN muerto
 
-**Los mensajes 1:1 reenviados por un repetidor no se pueden descifrar.**
+### Los mensajes 1:1 reenviados por un repetidor ya se descifran
 
-`onTransportPacket` emite `IncomingEnvelope(senderId = address)` con la dirección del **salto
-inmediato**, y `MeshInbox.handleText` descifra con las claves de ese salto. En un enlace directo
-A→B funciona (ECDH es simétrico), pero en A→C→B el receptor intenta las claves de C y falla:
-el mensaje se descarta.
+El buzón usaba `envelope.senderId`, que es la dirección del **salto inmediato**, no la del emisor
+original. En un enlace directo A→B daba igual, pero en A→C→B el receptor probaba las claves de C,
+fallaba y descartaba el mensaje en silencio.
 
-Arreglarlo exige cambiar el protocolo/modelo de datos: hoy `originId` viaja como prefijo de
-SHA-256 de la clave pública (`nodeId`), que no se puede resolver a un registro de `peers`.
-Habría que guardar el mapeo `nodeId → peerId` durante el handshake (en `completeHandshake` ya se
-tienen ambos datos) y usarlo en el buzón. Se ha dejado fuera porque implica una columna nueva en
-`PeerEntity` y una migración de Room, y conviene hacerlo pudiendo compilar y probar.
+La cabecera de trama ya llevaba el `originId` (prefijo de 6 bytes del SHA-256 de la clave pública
+del emisor), pero no había forma de convertirlo en una dirección MAC — que es como se busca la
+clave del par. Se ha añadido esa traducción:
 
----
+- `IdentityRepository.nodeIdOf(publicKey)` calcula el nodeId de cualquier clave pública.
+- `NearLinkTransport` mantiene un índice `nodeId → MAC` que **se reconstruye al arrancar** con las
+  claves públicas ya guardadas (sobrevive a los reinicios de proceso) y **se actualiza en cada
+  handshake**.
+- `IncomingEnvelope` lleva ahora `originAddress`, ya resuelto por el transporte.
+- `MeshInbox` usa el origen para el filtro de bloqueados, para descifrar y como `peerId` de la
+  conversación: un mensaje reenviado aparece en el chat con su emisor real, no con el repetidor.
+- El **ACK vuelve al emisor original** (`deliver(originAddress, ack)`, con respaldo al salto
+  inmediato). Antes se quedaba en el repetidor y el emisor agotaba los 8 s de espera.
+
+Cubierto por `app/src/test/java/.../OriginRoutingTest.kt`, que fija el contrato del campo de
+origen de la cabecera (6 bytes, hex en mayúsculas, invariante bajo relay).
+
+### Los grupos NO tenían este problema
+
+Se ha verificado, no asumido: la clave de un canal se deriva del **código compartido**
+(`GroupKeys.groupKey(code)`), no de un secreto por par. `ChannelRepositoryImpl.decryptIncoming`
+resuelve la clave con `storedGroupKey(channelId)` y el AAD (`channelId + senderNodeId + nombre`)
+viaja entero dentro de la trama, así que una trama reenviada por N saltos se descifra igual. Los
+grupos ya funcionaban en malla.
+
+### Eliminado el código de emparejamiento por PIN (estaba muerto)
+
+Cadena completa que no llamaba nadie:
+
+```
+SettingsViewModel.rotatePin()        <- ninguna pantalla lo invoca
+  -> RotatePairingPinUseCase
+    -> SettingsRepository.rotatePairingPin()
+      -> CryptoManager.randomPin()
+IdentityRepository.derivePairingKey()  <- cero llamadas
+  -> CryptoManager.derivePinKey()      <- PBKDF2-HMAC-SHA256 de 600.000 iteraciones
+UserSettings.pairingPin / pinExpiresAt <- nunca se muestran
+```
+
+No había ni un solo `string` de PIN o emparejamiento en `strings.xml`. Se ha borrado todo
+(`derivePinKey`, `randomPin`, `derivePairingKey`, `rotatePairingPin`, `RotatePairingPinUseCase`,
+las dos claves de `settings` y los dos campos de `UserSettings`). No hace falta migración: la
+tabla `settings` es clave/valor y las filas huérfanas se ignoran.
+
+**Lo que empareja de verdad hoy:** el handshake BLE intercambia las claves públicas X.509,
+`completeHandshake` deriva el secreto compartido por ECDH y guarda la huella. La verificación
+fuera de banda es esa huella, que se muestra en Ajustes y en la cabecera del chat.
+
+**Hueco que queda (menor, sin arreglar):** `Peer.verified` nunca se pone a `true`. `HomeScreen`
+pasa `verified = true` a pelo para el chip de la identidad local, y `ChatScreen`/`PeerItem`
+leen `peer.verified`, que siempre es `false`. El candado de "verificado" nunca se enciende:
+haría falta una acción explícita de confirmar huella en persona.
 
 ## Cómo verificarlo en un dispositivo
 
