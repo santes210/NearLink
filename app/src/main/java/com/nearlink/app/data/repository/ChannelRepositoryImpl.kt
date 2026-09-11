@@ -229,8 +229,8 @@ class ChannelRepositoryImpl(
      */
     private suspend fun storedGroupKey(channelId: String): ByteArray? =
         withContext(dispatchers.io) {
+            val entity = runCatching { dao.find(channelId) }.getOrNull() ?: return@withContext null
             runCatching {
-                val entity = dao.find(channelId) ?: return@runCatching null
                 val box = SealedBox(
                     ciphertext = Base64.getDecoder().decode(entity.keyCiphertext),
                     iv = Base64.getDecoder().decode(entity.keyIv),

@@ -59,7 +59,8 @@ class MessageRepositoryImpl(
                 // hacia un ECDH completo por cada conversacion de la lista.
                 val keysByPeer = HashMap<String, List<ByteArray>>(rows.size)
                 rows.map { row ->
-                    val keys = keysByPeer.getOrPut(row.peerId) { keysFor(row.peerId) }
+                    val keys = keysByPeer[row.peerId] ?: keysFor(row.peerId)
+                        .also { keysByPeer[row.peerId] = it }
                     row.toConversation(keys)
                 }
             }
@@ -156,7 +157,8 @@ class MessageRepositoryImpl(
             val entities = messageDao.pending()
             val keysByPeer = HashMap<String, List<ByteArray>>()
             entities.mapNotNull { entity ->
-                val keys = keysByPeer.getOrPut(entity.peerId) { keysFor(entity.peerId) }
+                val keys = keysByPeer[entity.peerId] ?: keysFor(entity.peerId)
+                    .also { keysByPeer[entity.peerId] = it }
                 entity.toDomainMessage(keys)
             }
         }

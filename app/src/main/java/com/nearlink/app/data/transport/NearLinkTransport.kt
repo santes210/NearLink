@@ -86,11 +86,12 @@ class NearLinkTransport(
     /**
      * Tramas recibidas, listas para que las consume el buzon.
      *
-     * `onBufferOverflow = SUSPEND` a proposito: con la politica por defecto
-     * (DROP_OLDEST) y `tryEmit`, cuando el buzon iba lento se PERDIAN tramas
-     * silenciosamente y el mensaje "intentaba llegar" pero no aparecia nunca.
+     * Se emite con `emit()` (suspende) en lugar de `tryEmit()`: con el buffer
+     * lleno `tryEmit` devuelve `false` y la trama se descartaba en silencio
+     * porque nadie miraba el valor devuelto. El mensaje "intentaba llegar" y
+     * no aparecia nunca en el otro movil.
      */
-    private val _incoming = MutableSharedFlow(
+    private val _incoming = MutableSharedFlow<IncomingEnvelope>(
         replay = 0,
         extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.SUSPEND,
