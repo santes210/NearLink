@@ -1,49 +1,109 @@
-
 package com.nearlink.app.service
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
-import androidx.core.app.NotificationCompat
-import com.nearlink.app.R
+import com.nearlink.app.NearLinkApplication
+import com.nearlink.app.domain.model.ConnectionState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
+/**
+ * Servicio en primer plano que mantiene viva la malla: anuncio BLE, servidor
+ * GATT y buzon de entrada.
+ *
+ * Se arranca desde la Activity (Android 12+ prohibe lanzar servicios en primer
+ * plano desde segundo plano) y solo despues de conceder los permisos.
+ */
 class NearLinkForegroundService : Service() {
-    companion object {
-        const val CHANNEL_ID = "NearLinkServiceChannel"
-        const val NOTIFICATION_ID = 1984
-    }
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var maintenanceJob: Job? = null
+    private var statusJob: Job? = null
+
+    private val container by lazy { (applicationContext as NearLinkApplication).container }
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        NearLinkNotifications.createChannels(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("NearLink P2P Activo")
-            .setContentText("Escuchando conexiones Bluetooth en segundo plano de forma segura.")
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+        when (intent?.action) {
+            NearLinkNotifications.ACTION_STOP -> {
+                stopMesh()
+                stopSelf()
+                return START_NOT_STICKY
+            }
 
-        startForeground(NOTIFICATION_ID, notification)
+            ACTION_SCAN -> scope.launch { container.transport.startScan() }
+            ACTION_RETRY -> scope.launch { container.retryPendingMessages() }
+            else -> startMesh()
+        }
         return START_STICKY
+    }
+
+    private fun startMesh() {
+        startForeground(
+            NearLinkNotifications.SERVICE_NOTIFICATION_ID,
+            NearLinkNotifications.serviceNotification(this, 0, false),
+        )
+        scope.launch {
+            runCatching { container.transport.start() }
+            container.meshInbox.start()
+        }
+        statusJob?.cancel()
+        statusJob = scope.launch {
+            container.transport.status.collectLatest { status ->
+                val connected = container.peerRepository.all().count { it.connectionState == ConnectionState.CONNECTED }
+                val notification = NearLinkNotifications.serviceNotification(
+                    context = this@NearLinkForegroundService,
+                    peers = connected,
+                    advertising = status.advertising,
+                )
+                runCatching {
+                    NearLinkNotifications.createChannels(this@NearLinkForegroundService)
+                    startForeground(NearLinkNotifications.SERVICE_NOTIFICATION_ID, notification)
+                }
+            }
+        }
+        maintenanceJob?.cancel()
+        maintenanceJob = scope.launch {
+            while (isActive) {
+                delay(MAINTENANCE_INTERVAL_MS)
+                runCatching { container.purgeExpiredMessages() }
+                runCatching { container.retryPendingMessages() }
+            }
+        }
+    }
+
+    private fun stopMesh() {
+        statusJob?.cancel()
+        maintenanceJob?.cancel()
+        scope.launch {
+            runCatching { container.transport.stop() }
+            container.meshInbox.stop()
+        }
+    }
+
+    override fun onDestroy() {
+        stopMesh()
+        scope.cancel()
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun createNotificationChannel() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            val serviceChannel = NotificationChannel(
-                CHANNEL_ID,
-                "NearLink P2P Background Service",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(serviceChannel)
-        }
+    companion object {
+        const val ACTION_SCAN = "com.nearlink.app.action.SCAN"
+        const val ACTION_RETRY = "com.nearlink.app.action.RETRY"
+        private const val MAINTENANCE_INTERVAL_MS = 60_000L
     }
 }

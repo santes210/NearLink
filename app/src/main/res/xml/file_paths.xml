@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Rutas compartidas por el FileProvider (solo la cache de adjuntos descifrados). -->
+<paths>
+    <files-path name="adjuntos" path="attachment-cache/" />
+</paths>
