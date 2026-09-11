@@ -1,64 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">NearLink</string>
-    <!-- Navigation -->
-    <string name="nav_chats">Chats</string>
+
+    <!-- Navegacion -->
+    <string name="nav_home">Chats</string>
     <string name="nav_radar">Radar</string>
     <string name="nav_settings">Ajustes</string>
 
-    <!-- Home -->
-    <string name="home_title">NearLink P2P</string>
-    <string name="home_subtitle">Modo Mesh • X25519 • Cifrado Extremo</string>
-    <string name="home_beacon_active">Baliza BLE Silenciosa Activa</string>
-    <string name="home_beacon_desc">Transmitiendo presencia offline en segundo plano</string>
-    <string name="home_nodes_title">Nodos y Chats en Red Mesh</string>
-    <string name="home_mesh_link">Mesh Link</string>
-    <string name="home_empty_title">Sin nodos cercanos</string>
-    <string name="home_empty_desc">Pulsa Radar para descubrir dispositivos NearLink.</string>
+    <!-- Comunes -->
+    <string name="action_cancel">Cancelar</string>
+    <string name="action_back">Volver</string>
+    <string name="signal_excellent">Excelente</string>
+    <string name="signal_good">Buena</string>
+    <string name="signal_fair">Aceptable</string>
+    <string name="signal_weak">Débil</string>
+    <string name="signal_value">%1$d dBm · %2$s</string>
+    <string name="peer_relay">Nodo repetidor</string>
+    <string name="peer_connected">Conectado</string>
+    <string name="time_just_now">ahora</string>
+    <string name="time_minutes">hace %1$d min</string>
+    <string name="time_hours">hace %1$d h</string>
+    <string name="time_days">hace %1$d d</string>
 
-    <!-- Discovery -->
-    <string name="discovery_title">Radar Bluetooth P2P</string>
-    <string name="discovery_subtitle">Descubriendo dispositivos NearLink cercanos vía BLE / Classic</string>
-    <string name="discovery_scan">Escanear Dispositivos</string>
-    <string name="discovery_stop">Detener Radar</string>
-    <string name="discovery_found">Dispositivos Encontrados</string>
-    <string name="discovery_connect">Conectar</string>
-    <string name="discovery_pin">PIN Temporal: %1$s</string>
+    <!-- Inicio -->
+    <string name="home_title">NearLink</string>
+    <string name="home_subtitle">Malla P2P · cifrada · sin internet</string>
+    <string name="home_sos">Enviar alerta SOS a la malla</string>
+    <string name="home_scan_cta">Buscar nodos</string>
+    <string name="home_empty_title">Todavía no hay conversaciones</string>
+    <string name="home_empty_subtitle">Abre el radar para descubrir nodos NearLink cercanos y empezar a hablar sin internet.</string>
+    <string name="home_no_preview">Sin mensajes todavía</string>
+    <string name="home_mesh_active">Baliza activa</string>
+    <string name="home_mesh_inactive">Malla detenida</string>
+    <string name="home_mesh_peers">%1$d nodos enlazados</string>
+    <string name="home_bluetooth_off">Enciende el Bluetooth para anunciarte en la malla</string>
 
     <!-- Chat -->
-    <string name="chat_back">Volver</string>
-    <string name="chat_hint_default">Mensaje cifrado…</string>
-    <string name="chat_hint_ttl">Mensaje TTL (%1$ds)…</string>
-    <string name="chat_recording">Grabando nota de voz con visualizador…</string>
-    <string name="chat_ttl_off">TTL: Desactivado</string>
-    <string name="chat_ttl_10">TTL: 10 segundos</string>
-    <string name="chat_ttl_30">TTL: 30 segundos</string>
+    <string name="chat_placeholder">Mensaje cifrado…</string>
     <string name="chat_send">Enviar</string>
-    <string name="chat_sos">SOS</string>
+    <string name="chat_attach">Adjuntar archivo</string>
+    <string name="chat_record">Grabar nota de voz</string>
+    <string name="chat_unknown_peer">Nodo desconocido</string>
+    <string name="chat_empty_title">Sin mensajes</string>
+    <string name="chat_empty_subtitle">Escribe, graba una nota o adjunta un archivo. Todo viaja cifrado por la malla.</string>
+    <string name="chat_sos_header">¡ALERTA SOS!</string>
+    <string name="chat_status_connected">Enlace activo</string>
+    <string name="chat_status_connecting">Conectando…</string>
+    <string name="chat_status_disconnected">Sin enlace</string>
+    <string name="chat_status_failed">Enlace fallido</string>
+    <string name="chat_connect">Conectar</string>
+    <string name="chat_e2e_on">cifrado E2E</string>
+    <string name="chat_e2e_off">en cola hasta el handshake</string>
+    <string name="chat_ttl_off">Sin TTL</string>
+    <string name="chat_ttl_seconds">%1$ds</string>
+    <string name="chat_ttl_value">%1$ds</string>
+    <string name="chat_ttl_description">Mensaje con autodestrucción</string>
+    <string name="chat_encrypted_description">Cifrado</string>
+    <string name="chat_status_description">Estado del mensaje</string>
+    <string name="chat_play_voice">Reproducir nota de voz</string>
+    <string name="chat_open">Abrir</string>
+    <string name="chat_attachment_unknown">Archivo</string>
+    <string name="chat_send_file_title">Enviar archivo</string>
+    <string name="chat_send_file_message">¿Enviar %1$s por la malla cifrada?</string>
 
-    <!-- Settings -->
-    <string name="settings_title">Configuración NearLink</string>
-    <string name="settings_subtitle">Identidad Criptográfica, PAKE y Wi-Fi Direct P2P</string>
-    <string name="settings_fingerprint_title">Huella Digital de Identidad (X25519)</string>
-    <string name="settings_fingerprint_desc">Clave pública asimétrica usada para autenticación de extremo a extremo sin servidores.</string>
-    <string name="settings_pin_title">PIN Temporal PAKE</string>
-    <string name="settings_pin_renew">Renovar</string>
-    <string name="settings_wifi_title">Transferencia Híbrida Wi-Fi Direct</string>
-    <string name="settings_wifi_speed">Aceleración de Archivos a 250Mbps</string>
-    <string name="settings_wifi_desc">Negociación automática para fotos y videos grandes sin router ni internet.</string>
+    <!-- Radar -->
+    <string name="radar_title">Radar</string>
+    <string name="radar_subtitle">Los nodos que aparecen están anunciando el servicio NearLink por Bluetooth LE.</string>
+    <string name="radar_scan">Escanear</string>
+    <string name="radar_stop">Detener</string>
+    <string name="radar_connect">Conectar</string>
+    <string name="radar_state_scanning">Buscando nodos cercanos…</string>
+    <string name="radar_state_idle">Radar en reposo</string>
+    <string name="radar_state_bluetooth_off">Bluetooth apagado</string>
+    <string name="radar_enable_bluetooth">Actívalo en los ajustes del sistema</string>
+    <string name="radar_empty_title">Nada a la vista</string>
+    <string name="radar_empty_subtitle">Pulsa escanear y mantén los dispositivos cerca. El radar se detiene solo tras un minuto para ahorrar batería.</string>
+    <string name="radar_bluetooth_off_title">Bluetooth desactivado</string>
+    <string name="radar_bluetooth_off_subtitle">NearLink necesita Bluetooth para anunciarse y descubrir nodos sin internet.</string>
 
-    <!-- Components -->
-    <string name="rssi_dBm">%1$d dBm (%2$s)</string>
-    <string name="signal_excellent">Excelente</string>
-    <string name="signal_good">Bueno</string>
-    <string name="signal_weak">Débil</string>
-    <string name="sos_alert">¡ALERTA SOS EMERGENCIA!</string>
+    <!-- Ajustes -->
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_subtitle">Identidad, malla y privacidad</string>
+    <string name="settings_identity">Identidad del nodo</string>
+    <string name="settings_identity_help">Huella de tu clave pública P-256. Compárala en persona con tu contacto: si coincide, nadie puede suplantarlo.</string>
+    <string name="settings_loading">Generando identidad…</string>
+    <string name="settings_copy">Copiar</string>
+    <string name="settings_display_name">Nombre visible</string>
+    <string name="settings_pin">PIN de emparejamiento</string>
+    <string name="settings_pin_help">Se renueva solo y caduca a los 5 minutos. Úsalo para confirmar que estás emparejando con el nodo correcto.</string>
+    <string name="settings_pin_none">Sin PIN activo</string>
+    <string name="settings_pin_show">Mostrar</string>
+    <string name="settings_pin_hide">Ocultar</string>
+    <string name="settings_pin_rotate">Renovar</string>
+    <string name="settings_mesh">Malla</string>
+    <string name="settings_relay">Actuar como repetidor</string>
+    <string name="settings_relay_help">Reenvía mensajes de otros nodos para ampliar el alcance de la malla.</string>
+    <string name="settings_autodelete">Autodestrucción activa</string>
+    <string name="settings_autodelete_help">Borra automáticamente los mensajes con TTL vencido.</string>
+    <string name="settings_default_ttl">TTL por defecto</string>
+    <string name="settings_appearance">Apariencia</string>
+    <string name="settings_theme">Tema</string>
+    <string name="settings_theme_system">Sistema</string>
+    <string name="settings_theme_light">Claro</string>
+    <string name="settings_theme_dark">Oscuro</string>
+    <string name="settings_dynamic_color">Color dinámico (Material You)</string>
+    <string name="settings_dynamic_color_help">Toma los colores de tu fondo de pantalla en Android 12 o superior.</string>
+    <string name="settings_danger">Zona de riesgo</string>
+    <string name="settings_regenerate">Regenerar identidad</string>
+    <string name="settings_regenerate_action">Regenerar</string>
+    <string name="settings_regenerate_title">¿Regenerar identidad?</string>
+    <string name="settings_regenerate_message">Se crearán claves nuevas: la huella cambiará y tus contactos tendrán que volver a verificarla.</string>
+    <string name="settings_wipe">Borrar todos los mensajes</string>
+    <string name="settings_wipe_action">Borrar</string>
+    <string name="settings_wipe_title">¿Borrar el historial?</string>
+    <string name="settings_wipe_message">Se eliminarán de este dispositivo todos los mensajes y adjuntos guardados. No se puede deshacer.</string>
+    <string name="settings_privacy_note">Privacidad: los mensajes y los adjuntos se guardan cifrados en este dispositivo y la copia de seguridad en la nube está desactivada para la base de datos.</string>
 
-    <!-- Service -->
-    <string name="service_title">NearLink P2P Activo</string>
-    <string name="service_text">Escuchando conexiones Bluetooth en segundo plano de forma segura.</string>
-    <string name="service_channel">NearLink P2P Background Service</string>
+    <!-- Permisos -->
+    <string name="permissions_title">NearLink necesita permisos</string>
+    <string name="permissions_subtitle">Sin ellos la malla Bluetooth no puede descubrir ni enlazar nodos. NearLink nunca usa tu ubicación ni envía datos a internet.</string>
+    <string name="permissions_grant">Conceder permisos</string>
+    <string name="permissions_continue">Continuar</string>
+    <string name="permissions_note">Si rechazas un permiso dos veces, Android bloquea el aviso: concédelo desde Ajustes → Aplicaciones → NearLink.</string>
+    <string name="permissions_bluetooth">Bluetooth: descubrir, anunciar y enlazar nodos cercanos.</string>
+    <string name="permissions_notifications">Notificaciones: avisarte cuando llega un mensaje con la app en segundo plano.</string>
+    <string name="permissions_wifi">Wi-Fi Direct: transferir archivos grandes a máxima velocidad.</string>
+    <string name="permissions_other">Permiso necesario para el funcionamiento de la malla.</string>
 
-    <!-- Errors -->
-    <string name="error_bluetooth_scan">Error en escaneo Bluetooth</string>
-    <string name="error_connect_failed">Fallo al conectar con %1$s</string>
+    <!-- Notificaciones -->
+    <string name="notification_channel_service_name">Servicio de malla NearLink</string>
+    <string name="notification_channel_service_description">Mantiene NearLink anunciándose y escuchando en segundo plano.</string>
+    <string name="notification_channel_messages_name">Mensajes NearLink</string>
+    <string name="notification_channel_messages_description">Avisos de mensajes entrantes de la malla.</string>
+    <string name="notification_channel_sos_name">Alertas SOS</string>
+    <string name="notification_channel_sos_description">Alertas de emergencia enviadas por otros nodos.</string>
+    <string name="notification_service_title">NearLink activo</string>
+    <string name="notification_service_idle">Malla en reposo</string>
+    <string name="notification_action_stop">Detener</string>
+    <plurals name="notification_service_text">
+        <item quantity="one">Escuchando la malla · %1$d nodo enlazado</item>
+        <item quantity="other">Escuchando la malla · %1$d nodos enlazados</item>
+    </plurals>
 </resources>

@@ -1,6 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  NearLink guarda los mensajes CIFRADOS en una base local. Se excluye la base de
+  datos (y las claves de identidad) de cualquier transferencia entre
+  dispositivos: si se moviesen sin la llave del Keystore serian ilegibles y, si
+  se moviesen con ella, romperia el modelo de privacidad de la app.
+-->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Add rules for cloud backup if needed -->
+        <exclude domain="database" path="nearlink.db" />
+        <exclude domain="database" path="nearlink.db-wal" />
+        <exclude domain="database" path="nearlink.db-shm" />
+        <exclude domain="file" path="identity.bin" />
+        <exclude domain="file" path="attachments/" />
     </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" path="nearlink.db" />
+        <exclude domain="database" path="nearlink.db-wal" />
+        <exclude domain="database" path="nearlink.db-shm" />
+        <exclude domain="file" path="identity.bin" />
+        <exclude domain="file" path="attachments/" />
+    </device-transfer>
 </data-extraction-rules>

@@ -1,22 +1,32 @@
-# Keep NearLink models for Room / serialization
--keep class com.nearlink.app.data.local.** { *; }
--keep class com.nearlink.app.domain.model.** { *; }
--keep class androidx.room.** { *; }
+# NearLink - reglas de R8
+#
+# Se ofusca y se reduce el codigo en release, asi que hay que conservar:
+#  - los modelos que se serializan a la BD (Room genera acceso por reflexion
+#    controlada, pero los nombres de las columnas salen de las anotaciones),
+#  - las clases usadas por Binder/parcelables del sistema (Bluetooth, WifiP2p),
+#  - y cualquier cosa que se llame por reflexion.
 
-# Coroutines
--keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
--keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+-keepattributes *Annotation*, InnerClasses, Signature, EnclosingMethod
 
-# Material3 / Compose - keep composables
--keep class androidx.compose.** { *; }
+# Room
+-keep class * extends androidx.room3.RoomDatabase { *; }
+-keep @androidx.room3.Entity class * { *; }
+-dontwarn androidx.room3.paging.**
+-dontwarn androidx.sqlite.**
 
-# Encryption - keep Keystore
--keep class javax.crypto.** { *; }
--keep class android.security.keystore.** { *; }
+# Modelos de dominio que se (des)serializan en el transporte
+-keepclassmembers class com.nearlink.app.domain.model.** { <init>(...); }
+-keepclassmembers class com.nearlink.app.data.local.entity.** { <init>(...); }
 
-# Remove logs in release
--assumenosideeffects class android.util.Log {
-    public static *** d(...);
-    public static *** v(...);
-    public static *** i(...);
+# Bluetooth / Wi-Fi Direct: clases de sistema que Android invoca por reflexion
+-keepclassmembers class ** implements android.os.Parcelable {
+    public static final android.os.Parcelable$Creator *;
 }
+-dontwarn android.net.wifi.p2p.**
+
+# Crypto: el Keystore resuelve algoritmos por nombre en tiempo de ejecucion
+-keepclassmembers class com.nearlink.app.data.crypto.** { *; }
+
+# Compose
+-dontwarn androidx.compose.**
+-keep class androidx.compose.runtime.** { *; }
