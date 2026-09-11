@@ -2,7 +2,7 @@ package com.nearlink.app.data.transport
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.UUID
 
@@ -22,9 +22,14 @@ import java.util.UUID
  */
 class OriginRoutingTest {
 
-    /** La forma exacta que produce `IdentityRepositoryImpl.nodeIdOf`. */
-    private fun nodeIdOf(sha256OfPublicKey: ByteArray): String =
-        Packet.bytesToMac(sha256OfPublicKey.take(6))
+    /**
+     * La forma exacta que produce `IdentityRepositoryImpl.nodeIdOf`:
+     * `sha256(clavePublica).take(6).joinToString(":") { "%02X".format(it) }`,
+     * que es literalmente lo que hace `Packet.bytesToMac` con los 6 primeros
+     * bytes. Se reutiliza el codigo del repositorio a proposito: si las dos
+     * formulas se separaran, el indice nodeId -> MAC dejaria de resolver.
+     */
+    private fun nodeIdOf(sha256OfPublicKey: ByteArray): String = Packet.bytesToMac(sha256OfPublicKey)
 
     @Test
     fun `el nodeId sobrevive intacto al campo de origen de la cabecera`() {
@@ -37,10 +42,9 @@ class OriginRoutingTest {
             originId = nodeId,
             payload = "hola".toByteArray(),
         )
-        val decoded = Packet.decode(frame)
+        val decoded = Packet.decode(frame) ?: error("la trama deberia decodificar")
 
-        assertNotNull("la trama deberia decodificar", decoded)
-        assertEquals("el receptor debe poder buscar este nodeId en su indice", nodeId, decoded?.originId)
+        assertEquals("el receptor debe poder buscar este nodeId en su indice", nodeId, decoded.originId)
     }
 
     @Test
@@ -49,12 +53,12 @@ class OriginRoutingTest {
 
         val primero = Packet.decode(
             Packet.encode(Packet.TYPE_MESSAGE, UUID.randomUUID(), nodeIdOf(sha), "uno".toByteArray()),
-        )
+        ) ?: error("primera trama corrupta")
         val segundo = Packet.decode(
             Packet.encode(Packet.TYPE_FILE, UUID.randomUUID(), nodeIdOf(sha), "dos".toByteArray()),
-        )
+        ) ?: error("segunda trama corrupta")
 
-        assertEquals(primero?.originId, segundo?.originId)
+        assertEquals(primero.originId, segundo.originId)
     }
 
     @Test
@@ -97,10 +101,10 @@ class OriginRoutingTest {
                 ttl = decoded.ttl - 1,
                 flags = decoded.flags or Packet.FLAG_RELAYED,
             ),
-        )
+        ) ?: error("trama reenviada corrupta")
 
-        assertEquals(originId, relayed?.originId)
-        assertEquals(decoded.ttl - 1, relayed?.ttl)
-        assertEquals(true, (relayed?.flags ?: 0) and Packet.FLAG_RELAYED != 0)
+        assertEquals(originId, relayed.originId)
+        assertEquals(decoded.ttl - 1, relayed.ttl)
+        assertTrue("el flag RELAYED debe conservarse", relayed.flags and Packet.FLAG_RELAYED != 0)
     }
 }
