@@ -25,7 +25,7 @@ import java.io.File
 class ChatViewModel(
     private val peerId: String,
     private val messageRepository: MessageRepository,
-    peerRepository: PeerRepository,
+    private val peerRepository: PeerRepository,
     private val sendMessage: SendMessageUseCase,
     private val sendAttachment: SendAttachmentUseCase,
     private val connectToPeer: ConnectToPeerUseCase,

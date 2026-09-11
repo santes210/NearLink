@@ -11,7 +11,9 @@ import com.nearlink.app.data.local.AttachmentStore
 import com.nearlink.app.data.local.dao.MessageDao
 import com.nearlink.app.data.local.entity.ConversationRow
 import com.nearlink.app.data.local.entity.MessageEntity
+import com.nearlink.app.data.local.mapper.attachmentOf
 import com.nearlink.app.data.local.mapper.toDomain
+import com.nearlink.app.data.local.mapper.toEntity
 import com.nearlink.app.domain.model.Attachment
 import com.nearlink.app.domain.model.Conversation
 import com.nearlink.app.domain.model.Message
@@ -190,7 +192,7 @@ class MessageRepositoryImpl(
         bytes: ByteArray,
         name: String,
         mimeType: String,
-        durationMs: Long? = null,
+        durationMs: Long?,
     ): Attachment = withContext(dispatchers.io) {
         attachmentStore.save(
             key = cipher.keysFor(peerId).first(),

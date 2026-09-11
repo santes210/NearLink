@@ -19,17 +19,17 @@ import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
-import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -53,18 +53,15 @@ import com.nearlink.app.ui.screens.radar.RadarScreen
 import com.nearlink.app.ui.screens.settings.SettingsScreen
 import com.nearlink.app.ui.theme.NearLinkTheme
 
-/** Busca la Activity desde un Context arbitrario (para WindowSizeClass). */
-private tailrec fun android.content.Context.findActivity(): android.app.Activity? =
-    when (this) {
-        is android.app.Activity -> this
-        is android.content.ContextWrapper -> baseContext.findActivity()
-        else -> null
-    }
+/** Ancho (dp) a partir del cual la navegacion pasa de barra inferior a rail. */
+private const val MEDIUM_WIDTH_BREAKPOINT_DP = 600
 
 @Composable
 fun NearLinkApp(
     container: AppContainer,
     startDestination: String = com.nearlink.app.ui.navigation.Routes.HOME,
+    pendingPeerId: String? = null,
+    onPendingPeerConsumed: () -> Unit = {},
     onPermissionsGranted: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -95,7 +92,12 @@ fun NearLinkApp(
     CompositionLocalProvider(LocalContainer provides container) {
         NearLinkTheme(darkTheme = darkTheme, dynamicColor = settings.dynamicColor) {
             if (permissionsGranted) {
-                MainContent(container = container, startDestination = startDestination)
+                MainContent(
+                    container = container,
+                    startDestination = startDestination,
+                    pendingPeerId = pendingPeerId,
+                    onPendingPeerConsumed = onPendingPeerConsumed,
+                )
             } else {
                 PermissionsScreen(
                     missing = missingPermissions.ifEmpty {
@@ -114,15 +116,26 @@ fun NearLinkApp(
 private fun MainContent(
     container: AppContainer,
     startDestination: String,
+    pendingPeerId: String?,
+    onPendingPeerConsumed: () -> Unit,
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val showNavigation = com.nearlink.app.ui.navigation.Routes.isTopLevel(currentRoute)
 
-    val activity = LocalContext.current.findActivity()
-    val widthSizeClass = activity?.let { calculateWindowSizeClass(it).windowWidthSizeClass }
-    val useRail = widthSizeClass != null && widthSizeClass != WindowWidthSizeClass.Compact
+    // Navegacion diferida: una notificacion pulsada con la app abierta pide
+    // abrir un chat concreto.
+    LaunchedEffect(pendingPeerId) {
+        pendingPeerId?.let { peerId ->
+            navController.navigate(com.nearlink.app.ui.navigation.Routes.chat(peerId))
+            onPendingPeerConsumed()
+        }
+    }
+
+    // Adaptacion a tamanos de ventana: por debajo de 600dp va barra inferior y
+    // a partir de ahi NavigationRail (patron canonico de Material 3).
+    val useRail = LocalConfiguration.current.screenWidthDp >= MEDIUM_WIDTH_BREAKPOINT_DP
 
     DisposableEffect(Unit) {
         onDispose { container.voicePlayer.stop() }
