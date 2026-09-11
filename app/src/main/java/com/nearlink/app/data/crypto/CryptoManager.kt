@@ -64,15 +64,29 @@ class CryptoManager(private val filesDir: File) {
     @Volatile
     private var cachedKeyPair: KeyPair? = null
 
-    /** Clave de reposo derivada de la identidad (sin par remoto). */
-    fun localKey(): ByteArray =
-        sha256(MASTER_KEY_ALIAS.toByteArray() + ensureIdentity().public.encoded)
+    @Volatile
+    private var cachedLocalKey: ByteArray? = null
+
+    /**
+     * Clave de reposo derivada de la identidad (sin par remoto).
+     *
+     * Se cachea: es determinista y se llama para CADA mensaje que se cifra o
+     * descifra (incluido el volcado de un chat entero). Sin cache, cada llamada
+     * entra en el monitor de `ensureIdentity()` y rehace un SHA-256.
+     */
+    fun localKey(): ByteArray {
+        cachedLocalKey?.let { return it }
+        val derived = sha256(MASTER_KEY_ALIAS.toByteArray() + ensureIdentity().public.encoded)
+        cachedLocalKey = derived
+        return derived
+    }
 
     /** Borra la identidad y genera una nueva (rotacion de claves). */
     @Synchronized
     fun regenerate(): KeyPair {
         runCatching { identityFile.delete() }
         cachedKeyPair = null
+        cachedLocalKey = null
         return ensureIdentity()
     }
 

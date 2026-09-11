@@ -22,6 +22,7 @@ import com.nearlink.app.domain.repository.ChannelRepository
 import com.nearlink.app.domain.repository.DecryptedGroupMessage
 import com.nearlink.app.domain.repository.IdentityRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.withContext
@@ -44,10 +45,20 @@ class ChannelRepositoryImpl(
     override fun observeChannels(): Flow<List<Channel>> =
         dao.observeChannels().map { rows -> rows.map { it.toChannel() } }
 
+    /**
+     * Mensajes del grupo. El descifrado sale del hilo de la UI con `flowOn`:
+     * `GroupChatViewModel` recoge este flujo con `stateIn(viewModelScope, ...)`
+     * (`Dispatchers.Main.immediate`), y aqui habia una consulta a la BD + una
+     * derivacion HKDF por CADA mensaje en cada emision.
+     */
     override fun observeMessages(channelId: String): Flow<List<GroupMessage>> =
-        dao.observeMessages(channelId).mapLatest { entities ->
-            entities.mapNotNull { entity -> entity.toGroupMessage(channelId) }
-        }
+        dao.observeMessages(channelId)
+            .mapLatest { entities ->
+                // La clave maestra del canal se resuelve una sola vez.
+                val groupKey = storedGroupKey(channelId) ?: return@mapLatest emptyList<GroupMessage>()
+                entities.mapNotNull { entity -> entity.toGroupMessage(channelId, groupKey) }
+            }
+            .flowOn(dispatchers.default)
 
     override suspend fun join(code: String, name: String): Outcome<Channel> = withContext(dispatchers.io) {
         outcomeOf {
@@ -211,19 +222,24 @@ class ChannelRepositoryImpl(
 
     // --------------------------------------------------------------- privado
 
-    private suspend fun storedGroupKey(channelId: String): ByteArray? {
-        val entity = dao.find(channelId) ?: return null
-        return runCatching {
-            val box = SealedBox(
-                ciphertext = Base64.getDecoder().decode(entity.keyCiphertext),
-                iv = Base64.getDecoder().decode(entity.keyIv),
-            )
-            crypto.decryptLocal(box)
-        }.getOrNull()
-    }
+    /**
+     * Clave maestra del canal, descifrada con la clave local del dispositivo.
+     * Devuelve null en lugar de propagar el fallo: un error del Keystore no
+     * debe tumbar el flujo de mensajes que consume la UI.
+     */
+    private suspend fun storedGroupKey(channelId: String): ByteArray? =
+        withContext(dispatchers.io) {
+            runCatching {
+                val entity = dao.find(channelId) ?: return@runCatching null
+                val box = SealedBox(
+                    ciphertext = Base64.getDecoder().decode(entity.keyCiphertext),
+                    iv = Base64.getDecoder().decode(entity.keyIv),
+                )
+                crypto.decryptLocal(box)
+            }.getOrNull()
+        }
 
-    private suspend fun GroupMessageEntity.toGroupMessage(channelId: String): GroupMessage? {
-        val groupKey = storedGroupKey(channelId) ?: return null
+    private fun GroupMessageEntity.toGroupMessage(channelId: String, groupKey: ByteArray): GroupMessage? {
         val box = runCatching {
             SealedBox(
                 ciphertext = Base64.getDecoder().decode(ciphertext),
@@ -231,7 +247,8 @@ class ChannelRepositoryImpl(
             )
         }.getOrNull() ?: return null
         val salt = runCatching { Base64.getDecoder().decode(salt) }.getOrNull() ?: return null
-        val messageKey = GroupKeys.messageKey(groupKey, salt)
+        // Un mensaje corrupto no puede tumbar el flujo que consume la UI.
+        val messageKey = runCatching { GroupKeys.messageKey(groupKey, salt) }.getOrNull() ?: return null
         val channelIdBytes = GroupKeys.hexToBytes(channelId)
         val senderIdBytes = Packet.macToBytes(senderId)
         val nameBytes = senderName.truncateUtf8(GroupWireFormat.NAME_MAX_BYTES).toByteArray(Charsets.UTF_8)

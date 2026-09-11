@@ -1,5 +1,6 @@
 package com.nearlink.app.data.mesh
 
+import android.util.Log
 import com.nearlink.app.core.CoroutineDispatchers
 import com.nearlink.app.data.crypto.MessageCipher
 import com.nearlink.app.data.repository.WireFormat
@@ -49,7 +50,12 @@ class MeshInbox(
         if (job?.isActive == true) return
         job = scope.launch(dispatchers.io) {
             transport.observeIncoming().collect { envelope ->
-                runCatching { handle(envelope) }
+                // Un fallo al procesar una trama no debe matar el colector (si
+                // no, la app dejaria de recibir para siempre), pero tampoco
+                // puede quedar invisible: por eso se registra en el log.
+                runCatching { handle(envelope) }.onFailure {
+                    Log.w(TAG, "Trama entrante descartada (${envelope.type})", it)
+                }
             }
         }
     }
@@ -171,6 +177,7 @@ class MeshInbox(
     }
 
     companion object {
+        private const val TAG = "NearLink"
         private const val MAX_SEEN_GROUP_MESSAGES = 512
     }
 }

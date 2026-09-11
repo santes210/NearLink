@@ -9,6 +9,7 @@ import com.nearlink.app.domain.repository.SettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -37,6 +38,15 @@ class IdentityRepositoryImpl(
         }
     }
 
+    /**
+     * Identidad del nodo.
+     *
+     * `flowOn(dispatchers.io)` es obligatorio aqui: `crypto.publicKeyBytes()` y
+     * `crypto.fingerprint()` leen el fichero de identidad y tocan el Android
+     * Keystore. Este flujo lo recoge `HomeViewModel` con
+     * `stateIn(viewModelScope, ...)` (hilo principal), asi que sin el `flowOn`
+     * el arranque de la pantalla de inicio hacia disco + Keystore en la UI.
+     */
     override fun observeIdentity(): Flow<NodeIdentity> = flow {
         emit(getIdentity())
         emitAll(
@@ -49,7 +59,7 @@ class IdentityRepositoryImpl(
                 )
             },
         )
-    }
+    }.flowOn(dispatchers.io)
 
     override suspend fun regenerate() {
         withContext(dispatchers.io) {

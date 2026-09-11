@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -82,7 +83,18 @@ class NearLinkTransport(
     /** Buffer de mensajes multiparte (archivos grandes) por nodo+mensaje. */
     private val incomingParts = ConcurrentHashMap<String, PartsBuffer>()
 
-    private val _incoming = MutableSharedFlow<IncomingEnvelope>(extraBufferCapacity = 64)
+    /**
+     * Tramas recibidas, listas para que las consume el buzon.
+     *
+     * `onBufferOverflow = SUSPEND` a proposito: con la politica por defecto
+     * (DROP_OLDEST) y `tryEmit`, cuando el buzon iba lento se PERDIAN tramas
+     * silenciosamente y el mensaje "intentaba llegar" pero no aparecia nunca.
+     */
+    private val _incoming = MutableSharedFlow(
+        replay = 0,
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.SUSPEND,
+    )
     private val _status = MutableStateFlow(TransportStatus())
     private val _scanState = MutableStateFlow(ScanState.IDLE)
 
@@ -662,7 +674,7 @@ class NearLinkTransport(
                         val ack = Packet.ack(decoded.messageId, identityRepository.nodeId())
                         deliver(address, ack)
                     }
-                    _incoming.tryEmit(
+                    _incoming.emit(
                         IncomingEnvelope(
                             senderId = address,
                             payload = payload,

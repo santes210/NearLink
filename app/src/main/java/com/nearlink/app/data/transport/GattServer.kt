@@ -165,9 +165,15 @@ class GattServer(
      * Envia un chunk por notificacion. La llamada debe espaciarse desde el
      * transporte (la pila BLE descarta notificaciones si se encolan demasiado
      * rapido).
+     *
+     * Devuelve false si el par todavia no ha habilitado las notificaciones
+     * (escritura del CCCD). Sin esta comprobacion la pila BLE descartaba el
+     * chunk en silencio y el emisor daba la trama por entregada: el mensaje
+     * "intentaba llegar" y nunca aparecia en el otro movil.
      */
     fun notify(address: String, chunk: ByteArray): Boolean {
         val gatt = server ?: return false
+        if (clients[address]?.notificationsEnabled != true) return false
         val device = gatt.connectedDevices.firstOrNull { it.address == address } ?: return false
         return runCatching {
             messageCharacteristic.value = chunk
