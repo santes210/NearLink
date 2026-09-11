@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +60,8 @@ private const val MEDIUM_WIDTH_BREAKPOINT_DP = 600
 fun NearLinkApp(
     container: AppContainer,
     startDestination: String = com.nearlink.app.ui.navigation.Routes.HOME,
+    pendingPeerId: String? = null,
+    onPendingPeerConsumed: () -> Unit = {},
     onPermissionsGranted: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -89,7 +92,12 @@ fun NearLinkApp(
     CompositionLocalProvider(LocalContainer provides container) {
         NearLinkTheme(darkTheme = darkTheme, dynamicColor = settings.dynamicColor) {
             if (permissionsGranted) {
-                MainContent(container = container, startDestination = startDestination)
+                MainContent(
+                    container = container,
+                    startDestination = startDestination,
+                    pendingPeerId = pendingPeerId,
+                    onPendingPeerConsumed = onPendingPeerConsumed,
+                )
             } else {
                 PermissionsScreen(
                     missing = missingPermissions.ifEmpty {
@@ -108,11 +116,22 @@ fun NearLinkApp(
 private fun MainContent(
     container: AppContainer,
     startDestination: String,
+    pendingPeerId: String?,
+    onPendingPeerConsumed: () -> Unit,
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val showNavigation = com.nearlink.app.ui.navigation.Routes.isTopLevel(currentRoute)
+
+    // Navegacion diferida: una notificacion pulsada con la app abierta pide
+    // abrir un chat concreto.
+    LaunchedEffect(pendingPeerId) {
+        pendingPeerId?.let { peerId ->
+            navController.navigate(com.nearlink.app.ui.navigation.Routes.chat(peerId))
+            onPendingPeerConsumed()
+        }
+    }
 
     // Adaptacion a tamanos de ventana: por debajo de 600dp va barra inferior y
     // a partir de ahi NavigationRail (patron canonico de Material 3).

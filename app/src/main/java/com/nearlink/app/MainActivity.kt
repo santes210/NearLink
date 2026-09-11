@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.mutableStateOf
 import com.nearlink.app.di.AppContainer
 import com.nearlink.app.permissions.NearLinkPermissions
 import com.nearlink.app.service.NearLinkForegroundService
@@ -16,6 +17,9 @@ class MainActivity : ComponentActivity() {
 
     private val container: AppContainer
         get() = (application as NearLinkApplication).container
+
+    /** Chat pendiente de abrir (por ejemplo al tocar una notificacion). */
+    private val pendingPeerId = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -28,6 +32,8 @@ class MainActivity : ComponentActivity() {
             NearLinkApp(
                 container = container,
                 startDestination = startDestination,
+                pendingPeerId = pendingPeerId.value,
+                onPendingPeerConsumed = { pendingPeerId.value = null },
                 onPermissionsGranted = { startMeshService() },
             )
         }
@@ -40,6 +46,9 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        // Con launchMode=singleTop la Activity se reutiliza: hay que avisar a
+        // Compose para que navegue al chat de la notificacion pulsada.
+        intent.getStringExtra(EXTRA_PEER_ID)?.let { pendingPeerId.value = it }
     }
 
     private fun startMeshService() {
