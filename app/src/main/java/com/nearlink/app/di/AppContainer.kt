@@ -1,6 +1,10 @@
 package com.nearlink.app.di
 
+import android.app.Activity
+import android.app.Application
 import android.content.Context
+import android.os.Bundle
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.nearlink.app.core.CoroutineDispatchers
@@ -30,7 +34,6 @@ import com.nearlink.app.domain.usecase.JoinChannelUseCase
 import com.nearlink.app.domain.usecase.LeaveChannelUseCase
 import com.nearlink.app.domain.usecase.PurgeExpiredMessagesUseCase
 import com.nearlink.app.domain.usecase.RetryPendingMessagesUseCase
-import com.nearlink.app.domain.usecase.RotatePairingPinUseCase
 import com.nearlink.app.domain.usecase.SendAttachmentUseCase
 import com.nearlink.app.domain.usecase.SendGroupMessageUseCase
 import com.nearlink.app.domain.usecase.SendMessageUseCase
@@ -42,6 +45,7 @@ import com.nearlink.app.ui.screens.home.HomeViewModel
 import com.nearlink.app.ui.screens.radar.RadarViewModel
 import com.nearlink.app.ui.screens.settings.SettingsViewModel
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -57,8 +61,33 @@ import kotlinx.coroutines.launch
  */
 class AppContainer(private val context: Context) {
 
-    /** Scope de aplicacion: vive mientras viva el proceso. */
-    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /**
+     * Scope de aplicacion: vive mientras viva el proceso.
+     *
+     * Lleva un [CoroutineExceptionHandler] a proposito: este scope lanza el
+     * trabajo de la malla y de las notificaciones sin que nadie haga `join`,
+     * asi que una excepcion no capturada acabaria en el manejador por defecto
+     * del proceso y CERRARIA la app (era lo que pasaba al recibir un mensaje).
+     * Ahora se registra y la app sigue viva.
+     */
+    val appScope = CoroutineScope(
+        SupervisorJob() +
+            Dispatchers.Default +
+            CoroutineExceptionHandler { _, throwable ->
+                Log.e(TAG, "Excepcion no controlada en el scope de la malla", throwable)
+            },
+    )
+
+    /**
+     * Contador de Activities iniciadas, con API pura de Android (sin depender
+     * de ProcessLifecycleOwner). Decide si hay que notificar o no.
+     */
+    private val foregroundTracker = ActivityCounter()
+
+    init {
+        (context.applicationContext as? Application)
+            ?.registerActivityLifecycleCallbacks(foregroundTracker)
+    }
 
     val dispatchers: CoroutineDispatchers = DefaultCoroutineDispatchers()
 
@@ -69,7 +98,7 @@ class AppContainer(private val context: Context) {
     val attachmentStore: AttachmentStore by lazy { AttachmentStore(context.filesDir, crypto) }
 
     val settingsRepository: SettingsRepository by lazy {
-        SettingsRepositoryImpl(database.settingsDao(), crypto, dispatchers)
+        SettingsRepositoryImpl(database.settingsDao(), dispatchers)
     }
 
     val identityRepository: IdentityRepository by lazy {
@@ -95,7 +124,6 @@ class AppContainer(private val context: Context) {
             messageDao = database.messageDao(),
             crypto = crypto,
             cipher = messageCipher,
-            peerRepository = peerRepository,
             attachmentStore = attachmentStore,
             dispatchers = dispatchers,
         )
@@ -149,10 +177,6 @@ class AppContainer(private val context: Context) {
         ConnectToPeerUseCase(transport, dispatchers)
     }
 
-    val rotatePairingPin: RotatePairingPinUseCase by lazy {
-        RotatePairingPinUseCase(settingsRepository, dispatchers)
-    }
-
     val joinChannel: JoinChannelUseCase by lazy {
         JoinChannelUseCase(channelRepository, transport, dispatchers)
     }
@@ -165,20 +189,38 @@ class AppContainer(private val context: Context) {
         LeaveChannelUseCase(channelRepository, dispatchers)
     }
 
-    /** Notificacion de mensaje entrante. */
+    /**
+     * Notificacion de mensaje entrante.
+     *
+     * Dos correcciones respecto a la version que colgaba la app:
+     *  1. Se publica en un hilo de fondo, no en `Dispatchers.Main.immediate`.
+     *     `NotificationManager` es thread-safe y cada `notify` es una llamada
+     *     binder: meterla en el hilo principal sumaba bloqueos justo cuando
+     *     llegaba un mensaje.
+     *  2. Solo se notifica si la app NO esta en primer plano. Si el usuario ya
+     *     tiene el chat abierto, la cabecera heads-up (canal IMPORTANCE_HIGH,
+     *     con sonido y vibracion) no aporta nada y enmascaraba la UI.
+     */
     private suspend fun notifyIncoming(peerId: String, preview: String) {
+        if (isAppInForeground()) return
         val peer = peerRepository.find(peerId)
         val isSos = preview.contains("SOS", ignoreCase = true)
-        appScope.launch(Dispatchers.Main.immediate) {
-            NearLinkNotifications.showMessage(
-                context = context,
-                peerId = peerId,
-                peerName = peer?.name ?: "Nodo NearLink",
-                preview = preview,
-                isSos = isSos,
-            )
+        val peerName = peer?.name ?: "Nodo NearLink"
+        appScope.launch(dispatchers.default) {
+            runCatching {
+                NearLinkNotifications.showMessage(
+                    context = context,
+                    peerId = peerId,
+                    peerName = peerName,
+                    preview = preview,
+                    isSos = isSos,
+                )
+            }.onFailure { Log.w(TAG, "No se pudo publicar la notificacion", it) }
         }
     }
+
+    /** True si la app tiene una Activity visible (se usa para no notificar de mas). */
+    private fun isAppInForeground(): Boolean = foregroundTracker.startedCount > 0
 
     // ------------------------------------------------------------ factorias
 
@@ -214,7 +256,6 @@ class AppContainer(private val context: Context) {
             identityRepository = identityRepository,
             messageRepository = messageRepository,
             peerRepository = peerRepository,
-            rotatePairingPin = rotatePairingPin,
             dispatchers = dispatchers,
         )
     }
@@ -248,4 +289,38 @@ class AppContainer(private val context: Context) {
             dispatchers = dispatchers,
         )
     }
+
+    private companion object {
+        const val TAG = "NearLink"
+    }
+}
+
+/**
+ * Contador de Activities en primer plano. Es la misma heuristica que usa
+ * ProcessLifecycleOwner (STARTED/STOPPED), pero sin anadir una dependencia de
+ * androidx.startup al arranque.
+ */
+private class ActivityCounter : Application.ActivityLifecycleCallbacks {
+
+    @Volatile
+    var startedCount: Int = 0
+        private set
+
+    override fun onActivityStarted(activity: Activity) {
+        startedCount++
+    }
+
+    override fun onActivityStopped(activity: Activity) {
+        startedCount = (startedCount - 1).coerceAtLeast(0)
+    }
+
+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+
+    override fun onActivityResumed(activity: Activity) = Unit
+
+    override fun onActivityPaused(activity: Activity) = Unit
+
+    override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+
+    override fun onActivityDestroyed(activity: Activity) = Unit
 }

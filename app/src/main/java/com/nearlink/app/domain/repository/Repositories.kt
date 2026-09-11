@@ -95,17 +95,22 @@ interface IdentityRepository {
     /** Id corto del nodo (6 bytes en hex) que viaja en la cabecera de trama. */
     suspend fun nodeId(): String
 
+    /**
+     * Id corto (6 bytes en hex) de un nodo a partir de su clave publica.
+     *
+     * Es la pieza que falta para enrutar por la malla: la cabecera de trama
+     * lleva el nodeId y NO la MAC (para no filtrar la direccion a los
+     * repetidores), pero para descifrar hace falta la clave del emisor
+     * original, y esa se busca por MAC. Con esto el transporte puede traducir
+     * nodeId -> direccion.
+     */
+    suspend fun nodeIdOf(publicKey: ByteArray): String
+
     /** Id de 4 bytes que se anuncia por BLE. */
     suspend fun advertiseId(): ByteArray
 
     /** Huella de una clave publica concreta. */
     suspend fun fingerprintOf(publicKey: ByteArray): String
-
-    /**
-     * Clave derivada del PIN de emparejamiento (PAKE simplificado: PBKDF2 con
-     * salt aleatoria compartida en el handshake).
-     */
-    suspend fun derivePairingKey(pin: String, salt: ByteArray): ByteArray
 
     suspend fun fingerprint(): String
 }
@@ -161,9 +166,6 @@ interface SettingsRepository {
     suspend fun current(): UserSettings
 
     suspend fun update(transform: (UserSettings) -> UserSettings)
-
-    /** Genera un PIN nuevo con expiracion corta. */
-    suspend fun rotatePairingPin(ttlMillis: Long = 5 * 60 * 1000L): String
 }
 
 /**
@@ -240,4 +242,13 @@ data class IncomingEnvelope(
     val originId: String = "",
     /** Id de la trama (UUID); permite descartar duplicados de la malla. */
     val messageId: String = "",
+    /**
+     * Direccion del emisor ORIGINAL, ya resuelta por el transporte a partir del
+     * nodeId de la cabecera. Vacio si no se pudo resolver.
+     *
+     * Sin esto, un mensaje reenviado por un repetidor se intentaba descifrar
+     * con la clave del repetidor y se descartaba en silencio: los mensajes 1:1
+     * solo funcionaban en enlace directo.
+     */
+    val originAddress: String = "",
 )

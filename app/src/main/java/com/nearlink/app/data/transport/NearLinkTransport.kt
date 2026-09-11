@@ -20,6 +20,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -82,7 +83,31 @@ class NearLinkTransport(
     /** Buffer de mensajes multiparte (archivos grandes) por nodo+mensaje. */
     private val incomingParts = ConcurrentHashMap<String, PartsBuffer>()
 
-    private val _incoming = MutableSharedFlow<IncomingEnvelope>(extraBufferCapacity = 64)
+    /**
+     * Indice nodeId -> direccion MAC.
+     *
+     * La cabecera de trama lleva el nodeId (prefijo del SHA-256 de la clave
+     * publica) y no la MAC, para no filtrar la direccion a los repetidores.
+     * Pero para descifrar hace falta la clave del emisor ORIGINAL, y esa se
+     * busca por MAC: este indice es la traduccion. Se reconstruye al arrancar
+     * con las claves publicas ya guardadas y se actualiza en cada handshake,
+     * asi que sobrevive a los reinicios de proceso.
+     */
+    private val nodeIdToAddress = ConcurrentHashMap<String, String>()
+
+    /**
+     * Tramas recibidas, listas para que las consume el buzon.
+     *
+     * Se emite con `emit()` (suspende) en lugar de `tryEmit()`: con el buffer
+     * lleno `tryEmit` devuelve `false` y la trama se descartaba en silencio
+     * porque nadie miraba el valor devuelto. El mensaje "intentaba llegar" y
+     * no aparecia nunca en el otro movil.
+     */
+    private val _incoming = MutableSharedFlow<IncomingEnvelope>(
+        replay = 0,
+        extraBufferCapacity = 64,
+        onBufferOverflow = BufferOverflow.SUSPEND,
+    )
     private val _status = MutableStateFlow(TransportStatus())
     private val _scanState = MutableStateFlow(ScanState.IDLE)
 
@@ -131,6 +156,7 @@ class NearLinkTransport(
 
     override suspend fun start(): Outcome<Unit> = withContext(dispatchers.io) {
         refreshIdentityCache()
+        rebuildNodeIdIndex()
         if (!isBluetoothEnabled()) {
             _status.value = _status.value.copy(bluetoothEnabled = false, advertising = false, message = "Bluetooth apagado")
             return@withContext Outcome.Failure(message = "Bluetooth apagado")
@@ -177,6 +203,7 @@ class NearLinkTransport(
             clients.values.forEach { it.close() }
             clients.clear()
             gattServer.stop()
+            nodeIdToAddress.clear()
             _scanState.value = ScanState.IDLE
             refreshStatus()
             pendingAcks.values.forEach { it.cancel() }
@@ -562,6 +589,9 @@ class NearLinkTransport(
         val secret = identityRepository.sharedSecret(identity.publicKey)
         if (secret is Outcome.Failure) return
         val fingerprint = identityRepository.fingerprintOf(identity.publicKey)
+        // A partir de aqui ya podemos reconocer las tramas de este nodo cuando
+        // nos lleguen a traves de un repetidor.
+        nodeIdToAddress[identityRepository.nodeIdOf(identity.publicKey)] = address
         val existing = peerRepository.find(address)
         peerRepository.upsert(
             (existing ?: Peer(
@@ -580,6 +610,23 @@ class NearLinkTransport(
             ),
         )
     }
+
+    /**
+     * Reconstruye el indice nodeId -> MAC con las claves publicas ya guardadas.
+     * Sin esto, tras un reinicio no se podria descifrar nada reenviado hasta el
+     * siguiente handshake con cada nodo.
+     */
+    private suspend fun rebuildNodeIdIndex() {
+        nodeIdToAddress.clear()
+        peerRepository.all().forEach { peer ->
+            val publicKey = peer.publicKey ?: return@forEach
+            nodeIdToAddress[identityRepository.nodeIdOf(publicKey)] = peer.id
+        }
+    }
+
+    /** Direccion del emisor original de una trama, o [fallback] si no se conoce. */
+    private fun addressOfOrigin(nodeId: String, fallback: String): String =
+        nodeIdToAddress[nodeId] ?: fallback
 
     private fun onClientChanged(address: String, connected: Boolean) {
         scope.launch(dispatchers.io) {
@@ -658,11 +705,16 @@ class NearLinkTransport(
                 Packet.TYPE_ACK -> pendingAcks.remove(decoded.messageId)?.complete(true)
 
                 else -> {
-                    if (decoded.flags and Packet.FLAG_REQUIRE_ACK != 0 && decoded.originId != identityRepository.nodeId()) {
-                        val ack = Packet.ack(decoded.messageId, identityRepository.nodeId())
-                        deliver(address, ack)
+                    val originAddress = addressOfOrigin(decoded.originId, address)
+                    val localNodeId = identityRepository.nodeId()
+                    if (decoded.flags and Packet.FLAG_REQUIRE_ACK != 0 && decoded.originId != localNodeId) {
+                        val ack = Packet.ack(decoded.messageId, localNodeId)
+                        // El ACK debe volver al emisor ORIGINAL, no al repetidor
+                        // que nos entrego la trama: si no, se quedaba en el salto
+                        // intermedio y el emisor agotaba los 8 s de espera.
+                        if (!deliver(originAddress, ack)) deliver(address, ack)
                     }
-                    _incoming.tryEmit(
+                    _incoming.emit(
                         IncomingEnvelope(
                             senderId = address,
                             payload = payload,
@@ -670,6 +722,7 @@ class NearLinkTransport(
                             hops = (Packet.MAX_TTL - decoded.ttl).coerceAtLeast(0),
                             originId = decoded.originId,
                             messageId = decoded.messageId.toString(),
+                            originAddress = originAddress,
                         ),
                     )
                     maybeRelay(address, decoded)

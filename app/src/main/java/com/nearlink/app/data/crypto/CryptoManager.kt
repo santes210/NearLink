@@ -53,8 +53,11 @@ data class SealedBox(val ciphertext: ByteArray, val iv: ByteArray) {
  *    llave del Keystore no siempre permite ECDH en dispositivos antiguos.)
  *  - Secreto compartido: ECDH + HKDF-SHA256 (RFC 5869) -> clave AES-256.
  *  - Mensajes y adjuntos: AES-256-GCM con IV aleatorio de 12 bytes.
- *  - PIN de emparejamiento: PBKDF2-HMAC-SHA256 con 600.000 iteraciones (OWASP)
- *    y salt aleatoria por sesion.
+ *
+ * El emparejamiento NO usa PIN: se hace intercambiando las claves publicas en
+ * el handshake BLE y derivando el secreto compartido por ECDH. La verificacion
+ * out-of-band es la huella (fingerprint) que se muestra en Ajustes y en la
+ * cabecera del chat.
  */
 class CryptoManager(private val filesDir: File) {
 
@@ -64,15 +67,29 @@ class CryptoManager(private val filesDir: File) {
     @Volatile
     private var cachedKeyPair: KeyPair? = null
 
-    /** Clave de reposo derivada de la identidad (sin par remoto). */
-    fun localKey(): ByteArray =
-        sha256(MASTER_KEY_ALIAS.toByteArray() + ensureIdentity().public.encoded)
+    @Volatile
+    private var cachedLocalKey: ByteArray? = null
+
+    /**
+     * Clave de reposo derivada de la identidad (sin par remoto).
+     *
+     * Se cachea: es determinista y se llama para CADA mensaje que se cifra o
+     * descifra (incluido el volcado de un chat entero). Sin cache, cada llamada
+     * entra en el monitor de `ensureIdentity()` y rehace un SHA-256.
+     */
+    fun localKey(): ByteArray {
+        cachedLocalKey?.let { return it }
+        val derived = sha256(MASTER_KEY_ALIAS.toByteArray() + ensureIdentity().public.encoded)
+        cachedLocalKey = derived
+        return derived
+    }
 
     /** Borra la identidad y genera una nueva (rotacion de claves). */
     @Synchronized
     fun regenerate(): KeyPair {
         runCatching { identityFile.delete() }
         cachedKeyPair = null
+        cachedLocalKey = null
         return ensureIdentity()
     }
 
@@ -88,8 +105,6 @@ class CryptoManager(private val filesDir: File) {
         private const val GCM_TAG_BITS = 128
         private const val IV_BYTES = 12
         private const val HKDF_OUTPUT_BYTES = 32 // AES-256
-        private const val PBKDF2_ITERATIONS = 600_000
-        private const val PBKDF2_KEY_BITS = 256
         private val HKDF_INFO = "NearLink/v1/message-key".toByteArray()
     }
 
@@ -158,19 +173,6 @@ class CryptoManager(private val filesDir: File) {
         )
     }
 
-    fun derivePinKey(pin: String, salt: ByteArray): ByteArray {
-        val spec = javax.crypto.spec.PBEKeySpec(
-            pin.toCharArray(),
-            salt,
-            PBKDF2_ITERATIONS,
-            PBKDF2_KEY_BITS,
-        )
-        val factory = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val secret = factory.generateSecret(spec).encoded
-        spec.clearPassword()
-        return hkdf(ikm = secret, salt = salt, info = "NearLink/v1/pin".toByteArray())
-    }
-
     // ------------------------------------------------------------------- AES
 
     fun encrypt(plaintext: ByteArray, key: ByteArray): SealedBox {
@@ -229,11 +231,6 @@ class CryptoManager(private val filesDir: File) {
     // ------------------------------------------------------------------ util
 
     fun randomBytes(size: Int): ByteArray = ByteArray(size).also { random.nextBytes(it) }
-
-    fun randomPin(digits: Int = 6): String {
-        val bound = Math.pow(10.0, digits.toDouble()).toInt()
-        return (random.nextInt(bound)).toString().padStart(digits, '0')
-    }
 
     fun sha256(data: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(data)
 

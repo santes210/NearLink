@@ -8,6 +8,7 @@ import com.nearlink.app.domain.model.ConnectionState
 import com.nearlink.app.domain.model.Peer
 import com.nearlink.app.domain.repository.PeerRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
@@ -17,7 +18,11 @@ class PeerRepositoryImpl(
 ) : PeerRepository {
 
     override fun observePeers(): Flow<List<Peer>> =
-        dao.observeAll().map { entities -> entities.map { it.toDomain() } }
+        dao.observeAll()
+            .map { entities -> entities.map { it.toDomain() } }
+            // `toDomain` decodifica la clave publica en Base64: fuera del hilo
+            // de la UI, que es quien recoge este flujo con `stateIn`.
+            .flowOn(dispatchers.io)
 
     override suspend fun upsert(peer: Peer) {
         withContext(dispatchers.io) { dao.upsert(peer.toEntity()) }

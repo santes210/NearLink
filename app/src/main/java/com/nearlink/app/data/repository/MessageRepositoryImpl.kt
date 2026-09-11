@@ -21,8 +21,8 @@ import com.nearlink.app.domain.model.MessageStatus
 import com.nearlink.app.domain.model.MessageType
 import com.nearlink.app.domain.repository.MessageRepository
 import com.nearlink.app.domain.repository.OutgoingFrame
-import com.nearlink.app.domain.repository.PeerRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.withContext
 
@@ -38,20 +38,42 @@ class MessageRepositoryImpl(
     private val messageDao: MessageDao,
     private val crypto: CryptoManager,
     private val cipher: MessageCipher,
-    private val peerRepository: PeerRepository,
     private val attachmentStore: AttachmentStore,
     private val dispatchers: CoroutineDispatchers,
 ) : MessageRepository {
 
+    /**
+     * Lista de chats.
+     *
+     * IMPORTANTE: el descifrado de la vista previa y la derivacion de claves se
+     * hacen con `flowOn(dispatchers.default)`. La UI recoge este flujo con
+     * `stateIn(viewModelScope, ...)`, es decir en `Dispatchers.Main.immediate`:
+     * sin el `flowOn` cada escritura en la BD obligaba al hilo principal a
+     * recalcular el secreto ECDH y a descifrar fila por fila, y eso es lo que
+     * provocaba el ANR ("NearLink no responde") al enviar/recibir.
+     */
     override fun observeConversations(): Flow<List<Conversation>> =
-        messageDao.observeConversations().mapLatest { rows ->
-            rows.mapNotNull { row -> row.toConversation() }
-        }
+        messageDao.observeConversations()
+            .mapLatest { rows ->
+                // Las claves se derivan UNA vez por emision y por par: antes se
+                // hacia un ECDH completo por cada conversacion de la lista.
+                val keysByPeer = HashMap<String, List<ByteArray>>(rows.size)
+                rows.map { row ->
+                    val keys = keysByPeer[row.peerId] ?: keysFor(row.peerId)
+                        .also { keysByPeer[row.peerId] = it }
+                    row.toConversation(keys)
+                }
+            }
+            .flowOn(dispatchers.default)
 
     override fun observeMessages(peerId: String): Flow<List<Message>> =
-        messageDao.observeForPeer(peerId).mapLatest { entities ->
-            entities.mapNotNull { entity -> entity.toDomainMessage(peerId) }
-        }
+        messageDao.observeForPeer(peerId)
+            .mapLatest { entities ->
+                // Una sola derivacion de claves para toda la conversacion.
+                val keys = keysFor(peerId)
+                entities.mapNotNull { entity -> entity.toDomainMessage(keys) }
+            }
+            .flowOn(dispatchers.default)
 
     override suspend fun persistIncoming(message: Message) {
         withContext(dispatchers.io) {
@@ -133,53 +155,71 @@ class MessageRepositoryImpl(
     override suspend fun pendingMessages(): List<Message> =
         withContext(dispatchers.io) {
             val entities = messageDao.pending()
-            entities.mapNotNull { entity -> entity.toDomainMessage(entity.peerId) }
+            val keysByPeer = HashMap<String, List<ByteArray>>()
+            entities.mapNotNull { entity ->
+                val keys = keysByPeer[entity.peerId] ?: keysFor(entity.peerId)
+                    .also { keysByPeer[entity.peerId] = it }
+                entity.toDomainMessage(keys)
+            }
         }
 
     override suspend fun getMessage(messageId: String): Message? =
         withContext(dispatchers.io) {
-            messageDao.find(messageId)?.let { it.toDomainMessage(it.peerId) }
+            messageDao.find(messageId)?.let { it.toDomainMessage(keysFor(it.peerId)) }
         }
 
     // --------------------------------------------------------------- privado
 
     /**
-     * Claves candidatas para un peer: primero el secreto compartido E2E y como
-     * respaldo la clave de reposo (mensajes encolados antes del handshake).
+     * Claves candidatas de un par (secreto E2E y, de respaldo, la clave de
+     * reposo). Nunca propaga el fallo: el Android Keystore lanza excepciones
+     * (KeyStoreException, ProviderException, UnrecoverableKeyException...) en
+     * dispositivos reales, y si eso se escapa de un flujo que la UI recoge con
+     * `stateIn` la excepcion acaba en el scope del ViewModel y CIERRA la app.
      */
-    private suspend fun MessageEntity.toDomainMessage(peerId: String): Message? {
+    private suspend fun keysFor(peerId: String): List<ByteArray> =
+        runCatching { cipher.keysFor(peerId) }.getOrDefault(emptyList())
+
+    private fun MessageEntity.toDomainMessage(keys: List<ByteArray>): Message? {
         val box = runCatching {
             SealedBox(
                 ciphertext = Base64.getDecoder().decode(ciphertext),
                 iv = Base64.getDecoder().decode(iv),
             )
         }.getOrNull() ?: return null
-        val bytes = cipher.decrypt(peerId, box) ?: return null
+        // Un descifrado fallido descarta SOLO ese mensaje, no el flujo entero.
+        val bytes = keys.firstNotNullOfOrNull { key ->
+            runCatching { crypto.decrypt(box, key) }.getOrNull()
+        } ?: return null
         return toDomain(String(bytes, Charsets.UTF_8))
     }
 
-    private suspend fun ConversationRow.toConversation(): Conversation {
+    private fun ConversationRow.toConversation(keys: List<ByteArray>): Conversation {
         val preview = if (previewCiphertext != null && previewIv != null) {
             runCatching {
                 val box = SealedBox(
                     ciphertext = Base64.getDecoder().decode(previewCiphertext),
                     iv = Base64.getDecoder().decode(previewIv),
                 )
-                cipher.decrypt(peerId, box)?.let { String(it, Charsets.UTF_8) }
+                keys.firstNotNullOfOrNull { key ->
+                    runCatching { crypto.decrypt(box, key) }.getOrNull()
+                }?.let { String(it, Charsets.UTF_8) }
             }.getOrNull()
         } else {
             null
         }
-        val peer = peerRepository.find(peerId)
+        // peerName, rssi, fingerprint e isConnected ya vienen del JOIN de la
+        // DAO: releer el peer por cada fila era una consulta (y un salto de
+        // dispatcher) de mas en cada emision de la lista de chats.
         return Conversation(
             peerId = peerId,
-            peerName = peer?.name ?: peerName,
+            peerName = peerName,
             preview = preview?.takeIf { it.isNotBlank() } ?: "",
             lastActivity = lastActivity,
             unreadCount = unread,
-            isConnected = peer?.connectionState?.name == "CONNECTED",
-            rssi = peer?.rssi ?: rssi,
-            fingerprint = peer?.fingerprint ?: fingerprint,
+            isConnected = isConnected,
+            rssi = rssi,
+            fingerprint = fingerprint,
         )
     }
 

@@ -178,9 +178,6 @@ data class UserSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = true,
     val wifiDirectThresholdMb: Int = 5,
-    /** PIN efimero para emparejar por proximidad. */
-    val pairingPin: String = "",
-    val pinExpiresAt: Long = 0L,
 )
 
 /**
