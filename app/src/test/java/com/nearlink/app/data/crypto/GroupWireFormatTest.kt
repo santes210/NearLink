@@ -27,11 +27,22 @@ class GroupWireFormatTest {
     }
 
     @Test
-    fun `decode rechaza tramas cortas o corruptas`() {
+    fun `decode rechaza tramas demasiado cortas para la cabecera`() {
         assertNull(GroupWireFormat.decode(ByteArray(0)))
         assertNull(GroupWireFormat.decode(ByteArray(5)))
         val encoded = GroupWireFormat.encode(channelId, senderNodeId, "X", salt, box)
-        assertNull(GroupWireFormat.decode(encoded.copyOf(encoded.size - 3)))
+        val minHeader = GroupWireFormat.CHANNEL_ID_BYTES + GroupWireFormat.NODE_ID_BYTES + 1 +
+            GroupWireFormat.SALT_BYTES + GroupWireFormat.IV_BYTES
+        assertNull(GroupWireFormat.decode(encoded.copyOf(minHeader - 1)))
+    }
+
+    @Test
+    fun `el ciphertext truncado sigue siendo parseable (su longitud la valida el GCM)`() {
+        val encoded = GroupWireFormat.encode(channelId, senderNodeId, "X", salt, box)
+        val truncated = encoded.copyOf(encoded.size - 3)
+        val decoded = GroupWireFormat.decode(truncated)!!
+        assertArrayEquals(channelId, decoded.channelId)
+        assertEquals(box.ciphertext.size - 3, decoded.box.ciphertext.size)
     }
 
     @Test
